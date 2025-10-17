@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { GameDig } from 'gamedig';
+import express from 'express';
 
 // Defaults
 const SERVER_TYPE = 'rust';
@@ -66,3 +67,9 @@ async function queryServer() {
     await queryServer();
   }
 })();
+
+const app = express();
+app.get("/health", (_req, res) => res.json({ ok: true }));
+app.listen(3000, () => {
+  console.log("Server on http://localhost:3000");
+});
