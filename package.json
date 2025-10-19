@@ -6,6 +6,11 @@
   "engines": {
     "node": ">=24.9.0"
   },
+  "scripts": {
+    "dev:web": "yarn workspace @rust-server-query/web dev",
+    "build:web": "yarn workspace @rust-server-query/web build",
+    "preview:web": "yarn workspace @rust-server-query/web preview"
+  },
   "workspaces": [
     "packages/server",
     "packages/web"

@@ -44,3 +44,12 @@ The `:type`, `:host`, and `:port` placeholders correspond to the server you are 
 ```
 curl http://localhost:3000/api/servers/rust/136.243.18.104/28017/latest | jq
 ```
+
+# Web Dashboard
+The React dashboard lives in `packages/web` and is built with Vite, React, Mantine, and React Query.
+
+- Install dependencies: `yarn install`
+- Run the SPA with hot reload: `yarn dev:web` (served on http://localhost:5173, proxied to the API)
+- Click a server name on the overview page to open the detail view with live player lists and charts.
+- Build for production: `yarn build:web`
+- Preview the production bundle: `yarn preview:web`
