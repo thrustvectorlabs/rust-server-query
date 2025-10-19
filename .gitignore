@@ -1,3 +1,6 @@
 package-lock.json
 config.ts
 node_modules
+
+# Server
+packages/server/data/*

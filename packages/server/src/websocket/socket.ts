@@ -1,8 +1,8 @@
 import { WebSocketServer } from 'ws';
 import type { WebSocket } from 'ws';
-import { config } from '../config';
-import { logMessage, loggingGroups } from '../logger/logger';
-import { CLIENT_SERVER_MESSAGES } from '../types/types';
+import { config } from '../config.js';
+import { logMessage, loggingGroups } from '../logger/logger.js';
+import { CLIENT_SERVER_MESSAGES } from '../types/types.js';
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
 
