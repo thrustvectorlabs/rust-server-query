@@ -1,6 +1,9 @@
 package-lock.json
 config.ts
 node_modules
+*dist
+
 
 # Server
 packages/server/data/*
+packages/server/tsconfig.tsbuildinfo
