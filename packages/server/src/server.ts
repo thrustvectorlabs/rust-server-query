@@ -2,6 +2,9 @@
 
 import { GameDig } from 'gamedig';
 import express from 'express';
+import { startWebServer } from './webserver';
+import { start } from 'repl';
+import { startSocketServer } from './websocket/socket';
 
 // Defaults
 const SERVER_TYPE = 'rust';
@@ -50,26 +53,15 @@ async function queryServer() {
 }
 
 (async function run() {
-  if (INTERVAL > 0) {
-    // Loop with clear and sleep
-    // First immediate run
-    // Then setInterval
-    await (async () => {
-      console.clear();
-      await queryServer();
-    })();
+  // Loop with clear and sleep
+  // First immediate run
+  // Then setInterval
+  startWebServer();
+  startSocketServer();
+  await queryServer();
 
-    setInterval(async () => {
-      console.clear();
-      await queryServer();
-    }, INTERVAL * 1000);
-  } else {
+  setInterval(async () => {
+    console.clear();
     await queryServer();
-  }
+  }, 20000);
 })();
-
-const app = express();
-app.get("/health", (_req, res) => res.json({ ok: true }));
-app.listen(3000, () => {
-  console.log("Server on http://localhost:3000");
-});
