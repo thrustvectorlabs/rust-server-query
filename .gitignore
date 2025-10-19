@@ -1,5 +1,4 @@
 package-lock.json
-config.ts
 node_modules
 *dist
 
