@@ -15,7 +15,7 @@ import {
 import { AreaChart } from '@mantine/charts';
 import { useQuery } from '@tanstack/react-query';
 import { IconArrowLeft } from '@tabler/icons-react';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { apiGet } from '../lib/api.js';
 import type {
@@ -23,7 +23,7 @@ import type {
   ServerSnapshotsResponse,
   ServerSnapshot,
 } from '../types/api.js';
-import { formatRelativeTime, formatTime } from '../utils/dates.js';
+import { formatDuration, formatRelativeTime, formatTime } from '../utils/dates.js';
 
 const DEFAULT_LIMIT = 20;
 const MIN_LIMIT = 1;
@@ -281,6 +281,79 @@ type CurrentPlayersCardProps = {
 };
 
 function CurrentPlayersCard({ snapshot, status }: CurrentPlayersCardProps) {
+  type SortColumn = 'player' | 'connectedSince' | 'sessionLength';
+  type SortDirection = 'asc' | 'desc';
+
+  const SORT_DEFAULT_DIRECTION: Record<SortColumn, SortDirection> = {
+    player: 'asc',
+    connectedSince: 'desc',
+    sessionLength: 'desc',
+  };
+
+  const [sortBy, setSortBy] = useState<SortColumn>('sessionLength');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+
+  const sortedPlayers = useMemo(() => {
+    if (!snapshot) {
+      return [];
+    }
+
+    const playersWithMeta = snapshot.players.map((player) => {
+      const sessionSeconds = player.time != null ? Math.max(0, Math.floor(player.time)) : null;
+      const connectedSince =
+        sessionSeconds != null ? snapshot.queriedAt - sessionSeconds * 1000 : null;
+
+      return {
+        player,
+        sessionSeconds,
+        connectedSince,
+      };
+    });
+
+    const directionMultiplier = sortDirection === 'asc' ? 1 : -1;
+    const numberFallback =
+      sortDirection === 'asc' ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY;
+
+    return playersWithMeta.slice().sort((a, b) => {
+      if (sortBy === 'player') {
+        return (
+          directionMultiplier *
+          a.player.name.localeCompare(b.player.name, undefined, { sensitivity: 'base' })
+        );
+      }
+
+      if (sortBy === 'sessionLength') {
+        const aValue = a.sessionSeconds ?? numberFallback;
+        const bValue = b.sessionSeconds ?? numberFallback;
+        return directionMultiplier * (aValue - bValue);
+      }
+
+      const aValue = a.connectedSince ?? numberFallback;
+      const bValue = b.connectedSince ?? numberFallback;
+      return directionMultiplier * (aValue - bValue);
+    });
+  }, [snapshot, sortBy, sortDirection]);
+
+  const handleSort = (column: SortColumn) => {
+    if (sortBy === column) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortBy(column);
+      setSortDirection(SORT_DEFAULT_DIRECTION[column]);
+    }
+  };
+
+  const renderSortIndicator = (column: SortColumn) => {
+    if (sortBy !== column) {
+      return null;
+    }
+    return (
+      <Text component="span" size="xs" c="dimmed">
+        {sortDirection === 'asc' ? '↑' : '↓'}
+      </Text>
+    );
+  };
+
   return (
     <Card withBorder padding="md" shadow="sm">
       <Group justify="space-between" align="center" mb="md">
@@ -313,17 +386,90 @@ function CurrentPlayersCard({ snapshot, status }: CurrentPlayersCardProps) {
           <Table highlightOnHover>
             <Table.Thead>
               <Table.Tr>
-                <Table.Th>Player</Table.Th>
-                <Table.Th>Score</Table.Th>
-                <Table.Th>Time</Table.Th>
+                <Table.Th
+                  aria-sort={
+                    sortBy === 'player'
+                      ? sortDirection === 'asc'
+                        ? 'ascending'
+                        : 'descending'
+                      : 'none'
+                  }
+                  onClick={() => handleSort('player')}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      handleSort('player');
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  style={{ cursor: 'pointer', userSelect: 'none' }}
+                >
+                  <Group gap={4}>
+                    <span>Player</span>
+                    {renderSortIndicator('player')}
+                  </Group>
+                </Table.Th>
+                <Table.Th
+                  aria-sort={
+                    sortBy === 'connectedSince'
+                      ? sortDirection === 'asc'
+                        ? 'ascending'
+                        : 'descending'
+                      : 'none'
+                  }
+                  onClick={() => handleSort('connectedSince')}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      handleSort('connectedSince');
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  style={{ cursor: 'pointer', userSelect: 'none' }}
+                >
+                  <Group gap={4}>
+                    <span>Connected Since</span>
+                    {renderSortIndicator('connectedSince')}
+                  </Group>
+                </Table.Th>
+                <Table.Th
+                  aria-sort={
+                    sortBy === 'sessionLength'
+                      ? sortDirection === 'asc'
+                        ? 'ascending'
+                        : 'descending'
+                      : 'none'
+                  }
+                  onClick={() => handleSort('sessionLength')}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      handleSort('sessionLength');
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  style={{ cursor: 'pointer', userSelect: 'none' }}
+                >
+                  <Group gap={4}>
+                    <span>Session Length</span>
+                    {renderSortIndicator('sessionLength')}
+                  </Group>
+                </Table.Th>
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
-              {snapshot.players.map((player) => (
+              {sortedPlayers.map(({ player, connectedSince, sessionSeconds }) => (
                 <Table.Tr key={`${player.name}-${player.score ?? 'na'}`}>
                   <Table.Td>{player.name}</Table.Td>
-                  <Table.Td>{player.score != null ? player.score : '—'}</Table.Td>
-                  <Table.Td>{player.time != null ? `${player.time}` : '—'}</Table.Td>
+                  <Table.Td>
+                    {connectedSince != null ? formatTime(connectedSince) : '—'}
+                  </Table.Td>
+                  <Table.Td>
+                    {sessionSeconds != null ? formatDuration(sessionSeconds) : '—'}
+                  </Table.Td>
                 </Table.Tr>
               ))}
             </Table.Tbody>
