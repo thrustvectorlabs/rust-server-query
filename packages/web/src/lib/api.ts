@@ -1,14 +1,19 @@
 const DEFAULT_BASE_URL = '/api';
 
+const BASE_URL = resolveBaseUrl();
+
 function resolveBaseUrl(): string {
-  const configured = import.meta.env.VITE_API_URL;
+  const configured =
+    import.meta.env.VITE_API_URL ??
+    import.meta.env.VITE_SERVER_API_URL ??
+    null;
+
   if (configured && typeof configured === 'string') {
-    return configured.replace(/\/+$/, '');
+    return configured.trim().replace(/\/+$/, '') || DEFAULT_BASE_URL;
   }
+
   return DEFAULT_BASE_URL;
 }
-
-const BASE_URL = resolveBaseUrl();
 
 export async function apiGet<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${BASE_URL}${path}`, {
