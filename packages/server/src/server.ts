@@ -91,8 +91,8 @@ async function queryServer() {
     }
 
     // Match: jq ".name, .players"
-    console.log(JSON.stringify(result.name));
-    console.log(JSON.stringify(result.players, null, 2));
+    // console.log(JSON.stringify(result.name));
+    // console.log(JSON.stringify(result.players, null, 2));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     // Match CLI behavior by printing an error and exiting nonzero for single run
@@ -110,7 +110,7 @@ async function queryServer() {
   await queryServer();
 
   setInterval(async () => {
-    console.clear();
+    // console.clear();
     await queryServer();
   }, 20000);
 })();
