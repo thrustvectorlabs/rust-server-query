@@ -35,3 +35,33 @@ export function formatTime(timestamp: number): string {
   }
   return new Date(timestamp).toLocaleString();
 }
+
+export function formatDuration(seconds: number): string {
+  if (!Number.isFinite(seconds)) {
+    return 'Unknown';
+  }
+
+  const totalSeconds = Math.max(0, Math.floor(seconds));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const secs = totalSeconds % 60;
+
+  if (hours === 0 && minutes === 0 && secs === 0) {
+    return '0s';
+  }
+
+  const parts: string[] = [];
+
+  if (hours > 0) {
+    parts.push(`${hours}h`);
+    parts.push(`${minutes.toString().padStart(2, '0')}m`);
+  } else if (minutes > 0) {
+    parts.push(`${minutes}m`);
+  }
+
+  const secondsString =
+    hours > 0 || minutes > 0 ? secs.toString().padStart(2, '0') : secs.toString();
+  parts.push(`${secondsString}s`);
+
+  return parts.join(' ');
+}
