@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 
 import { GameDig } from 'gamedig';
-import express from 'express';
 import { recordServerSnapshot } from './database/database.js';
 import type { PlayerSnapshotInput } from './database/database.js';
 import { startWebServer } from './webserver/index.js';
 import { startSocketServer } from './websocket/socket.js';
+import { logMessage, loggingGroups } from './logger/logger.js';
 
 // Defaults
 const SERVER_TYPE = 'rust';
@@ -45,6 +45,10 @@ for (let i = 2; i < process.argv.length; i++) {
 
 async function queryServer(): Promise<boolean> {
   try {
+    logMessage(
+      loggingGroups.SERVER,
+      `Querying ${SERVER_TYPE} server at ${SERVER_HOST}:${SERVER_PORT}`,
+    );
     const result = await GameDig.query({
       type: SERVER_TYPE,
       host: SERVER_HOST,
@@ -93,9 +97,21 @@ async function queryServer(): Promise<boolean> {
         players,
         queriedAt: Date.now(),
       });
+      const playerCount =
+        typeof (result as { numplayers?: unknown }).numplayers === 'number'
+          ? (result as { numplayers?: number }).numplayers
+          : players.length;
+      logMessage(
+        loggingGroups.SERVER,
+        `Stored snapshot for ${SERVER_HOST}:${SERVER_PORT} with ${playerCount} players`,
+      );
     } catch (dbError) {
       const message = dbError instanceof Error ? dbError.message : String(dbError);
       console.error(JSON.stringify({ error: `Failed to store snapshot: ${message}` }));
+      logMessage(
+        loggingGroups.SERVER,
+        `Failed to store snapshot for ${SERVER_HOST}:${SERVER_PORT}: ${message}`,
+      );
     }
 
     // Match: jq ".name, .players"
@@ -106,14 +122,24 @@ async function queryServer(): Promise<boolean> {
     const message = err instanceof Error ? err.message : String(err);
     // Match CLI behavior by printing an error and exiting nonzero for single run
     console.error(JSON.stringify({ error: message }));
+    logMessage(
+      loggingGroups.SERVER,
+      `Error querying server ${SERVER_HOST}:${SERVER_PORT}: ${message}`,
+    );
     return false;
   }
 }
 
 (async function run() {
   if (runContinuously) {
+    logMessage(
+      loggingGroups.SERVER,
+      `Starting continuous polling every ${pollIntervalMs / 1000}s`,
+    );
     startWebServer();
     startSocketServer();
+  } else {
+    logMessage(loggingGroups.SERVER, 'Running single server snapshot query');
   }
 
   const initialSuccess = await queryServer();

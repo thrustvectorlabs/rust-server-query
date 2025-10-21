@@ -1,12 +1,15 @@
-import express from 'express';
+import express, { type Request } from 'express';
 import cors from 'cors';
 import { config } from '../config.js';
 import {
   getLatestSnapshot,
   getRecentSnapshots,
   listServers,
+  listSnapshotQueryMetrics,
+  recordSnapshotQueryMetric,
   type ServerIdentifier,
 } from '../database/database.js';
+import { logMessage, loggingGroups } from '../logger/logger.js';
 
 const DEFAULT_SNAPSHOT_LIMIT = 10;
 const MAX_SNAPSHOT_LIMIT = 100;
@@ -14,8 +17,18 @@ const MAX_SNAPSHOT_LIMIT = 100;
 export const startWebServer = () => {
   const app = express();
 
+  app.set('trust proxy', true);
   app.use(cors());
   app.set('json spaces', 2);
+
+  app.use((req, _res, next) => {
+    const clientIp = extractClientIp(req);
+    logMessage(
+      loggingGroups.WEBSERVER,
+      `${req.method} ${req.originalUrl} from ${clientIp ?? 'unknown client'}`,
+    );
+    next();
+  });
 
   app.get('/', (_req, res) => {
     res.send('Rust Server Query Web Server is running.');
@@ -39,6 +52,7 @@ export const startWebServer = () => {
       return;
     }
 
+    recordSnapshotVisit(req);
     const snapshots = getRecentSnapshots(server, limit);
     res.json({ server, snapshots, limit });
   });
@@ -56,11 +70,17 @@ export const startWebServer = () => {
       return;
     }
 
+    recordSnapshotVisit(req);
     res.json({ server, snapshot });
   });
 
+  app.get('/api/metrics/snapshot-queries', (_req, res) => {
+    const metrics = listSnapshotQueryMetrics();
+    res.json({ metrics });
+  });
+
   app.listen(config.webServer.port, () => {
-    console.log(`Web server is listening on port ${config.webServer.port}`);
+    logMessage(loggingGroups.WEBSERVER, `Web server listening on port ${config.webServer.port}`);
   });
 };
 
@@ -95,4 +115,57 @@ function parseLimit(
   }
 
   return limit;
+}
+
+function recordSnapshotVisit(req: Request): void {
+  const ipAddress = extractClientIp(req);
+  if (!ipAddress) {
+    return;
+  }
+
+  const route = `${req.method} ${resolveRoutePattern(req)}`;
+  const userAgent = typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'] : null;
+
+  recordSnapshotQueryMetric({
+    ipAddress,
+    route,
+    userAgent,
+  });
+}
+
+function resolveRoutePattern(req: Request): string {
+  const baseUrl = typeof req.baseUrl === 'string' ? req.baseUrl : '';
+  const routePath =
+    typeof req.route?.path === 'string'
+      ? req.route.path
+      : typeof req.path === 'string'
+        ? req.path
+        : req.originalUrl;
+  const combined = `${baseUrl}${routePath}`;
+  return combined.length > 0 ? combined : req.originalUrl;
+}
+
+function extractClientIp(req: Request): string | null {
+  const forwardedFor = req.headers['x-forwarded-for'];
+  if (typeof forwardedFor === 'string' && forwardedFor.length > 0) {
+    const first = forwardedFor.split(',')[0]?.trim();
+    if (first) {
+      return first;
+    }
+  } else if (Array.isArray(forwardedFor) && forwardedFor.length > 0) {
+    const first = forwardedFor[0]?.trim();
+    if (first) {
+      return first;
+    }
+  }
+
+  if (typeof req.ip === 'string' && req.ip.length > 0) {
+    return req.ip;
+  }
+
+  if (req.socket?.remoteAddress) {
+    return req.socket.remoteAddress;
+  }
+
+  return null;
 }
