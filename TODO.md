@@ -1,1 +1,7 @@
-3. I want to expose the data to the implemented express server on a certain GET-request. Can you show me how to do that?
+[x] No minimumheight
+[x] Save database by interval
+Is already done. Just thinking it may be lost whenever the container respawns. (This is the case, confirmed)
+
+[n] Read database upon startup to continue (not possible, there is no database)
+[ ] Be able to continue when the server is down or sending invalid responses. Should not make a snapshot of that.
+[ ] Add logging
