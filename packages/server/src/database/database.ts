@@ -97,9 +97,19 @@ CREATE TABLE IF NOT EXISTS player_observations (
   FOREIGN KEY (snapshot_id) REFERENCES server_snapshots(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS snapshot_query_metrics (
+  ip_address TEXT NOT NULL,
+  route TEXT NOT NULL,
+  user_agent TEXT,
+  last_queried_at INTEGER NOT NULL,
+  query_count INTEGER NOT NULL DEFAULT 1,
+  PRIMARY KEY (ip_address, route)
+);
+
 CREATE INDEX IF NOT EXISTS idx_server_snapshots_lookup ON server_snapshots(server_type, host, port, queried_at DESC);
 CREATE INDEX IF NOT EXISTS idx_player_observations_snapshot ON player_observations(snapshot_id);
 CREATE INDEX IF NOT EXISTS idx_player_observations_name ON player_observations(player_name);
+CREATE INDEX IF NOT EXISTS idx_snapshot_query_metrics_last ON snapshot_query_metrics(last_queried_at);
 `);
 
 const upsertServerStmt = db.prepare<{
@@ -150,6 +160,20 @@ INSERT INTO player_observations (snapshot_id, player_name, score, time, raw_json
 VALUES (@snapshotId, @playerName, @score, @time, @rawJson)
 `);
 
+const upsertSnapshotQueryMetricStmt = db.prepare<{
+  ipAddress: string;
+  route: string;
+  userAgent: string | null;
+  timestamp: number;
+}>(`
+INSERT INTO snapshot_query_metrics (ip_address, route, user_agent, last_queried_at, query_count)
+VALUES (@ipAddress, @route, @userAgent, @timestamp, 1)
+ON CONFLICT(ip_address, route) DO UPDATE SET
+  user_agent = COALESCE(excluded.user_agent, snapshot_query_metrics.user_agent),
+  last_queried_at = excluded.last_queried_at,
+  query_count = snapshot_query_metrics.query_count + 1;
+`);
+
 const selectSnapshotByIdStmt = db.prepare<{ id: number }, SnapshotRow>(`
 SELECT id, server_type, host, port, name, map, num_players, max_players, ping, queried_at
 FROM server_snapshots
@@ -183,6 +207,20 @@ const selectServersStmt = db.prepare<never, ServerRow>(`
 SELECT server_type, host, port, name, map, max_players, current_players, last_ping, last_snapshot_at
 FROM servers
 ORDER BY server_type, host, port
+`);
+
+type SnapshotQueryMetricRow = {
+  ip_address: string;
+  route: string;
+  user_agent: string | null;
+  last_queried_at: number;
+  query_count: number;
+};
+
+const selectSnapshotQueryMetricsStmt = db.prepare<never, SnapshotQueryMetricRow>(`
+SELECT ip_address, route, user_agent, last_queried_at, query_count
+FROM snapshot_query_metrics
+ORDER BY ip_address ASC, route ASC
 `);
 
 const pruneSnapshotsStmt = db.prepare<{
@@ -263,6 +301,27 @@ export interface StoredServerSummary {
     ping: number | null;
   };
   lastSnapshotAt: number;
+}
+
+export interface SnapshotQueryLogInput {
+  ipAddress: string;
+  route: string;
+  userAgent?: string | null;
+  queriedAt?: number;
+}
+
+export interface SnapshotQueryRouteMetric {
+  route: string;
+  queryCount: number;
+  lastQueriedAt: number;
+  lastUserAgent: string | null;
+}
+
+export interface SnapshotQueryMetric {
+  ipAddress: string;
+  totalQueries: number;
+  lastQueriedAt: number;
+  routes: SnapshotQueryRouteMetric[];
 }
 
 const recordSnapshotTx = db.transaction((snapshot: ServerSnapshotInput): number => {
@@ -389,6 +448,75 @@ export function getDatabaseConnection(): BetterSqliteDatabase {
   return db;
 }
 
+export function recordSnapshotQueryMetric(log: SnapshotQueryLogInput): void {
+  const ipAddress = sanitizeText(log.ipAddress);
+  const route = sanitizeText(log.route);
+
+  if (!ipAddress || !route) {
+    return;
+  }
+
+  const timestamp = log.queriedAt ?? Date.now();
+  const userAgent = sanitizeText(log.userAgent ?? undefined);
+
+  upsertSnapshotQueryMetricStmt.run({
+    ipAddress,
+    route,
+    userAgent,
+    timestamp,
+  });
+}
+
+export function listSnapshotQueryMetrics(): SnapshotQueryMetric[] {
+  const rows = selectSnapshotQueryMetricsStmt.all();
+  const metricsByIp = new Map<string, SnapshotQueryMetric>();
+
+  for (const row of rows) {
+    const ip = sanitizeText(row.ip_address);
+    const route = sanitizeText(row.route);
+    const lastQueriedAt = sanitizeNumber(row.last_queried_at);
+    const queryCount = sanitizeNumber(row.query_count);
+    const userAgent = sanitizeText(row.user_agent ?? undefined);
+
+    if (!ip || !route || lastQueriedAt === null || queryCount === null) {
+      continue;
+    }
+
+    let metric = metricsByIp.get(ip);
+    if (!metric) {
+      metric = {
+        ipAddress: ip,
+        totalQueries: 0,
+        lastQueriedAt,
+        routes: [],
+      };
+      metricsByIp.set(ip, metric);
+    }
+
+    metric.totalQueries += queryCount;
+    metric.lastQueriedAt = Math.max(metric.lastQueriedAt, lastQueriedAt);
+    metric.routes.push({
+      route,
+      queryCount,
+      lastQueriedAt,
+      lastUserAgent: userAgent,
+    });
+  }
+
+  return Array.from(metricsByIp.values()).map((metric) => ({
+    ...metric,
+    routes: metric.routes.sort((a, b) =>
+      b.lastQueriedAt === a.lastQueriedAt
+        ? b.queryCount - a.queryCount
+        : b.lastQueriedAt - a.lastQueriedAt,
+    ),
+  })).sort((a, b) =>
+    b.totalQueries === a.totalQueries
+      ? b.lastQueriedAt - a.lastQueriedAt
+      : b.totalQueries - a.totalQueries,
+  );
+}
+
 function mapSnapshotRow(row: SnapshotRow): StoredServerSnapshot {
   const playerRows = selectSnapshotPlayersStmt.all({ snapshotId: row.id });
   const players = playerRows.map((playerRow) => ({
@@ -425,6 +553,15 @@ function getSnapshotById(id: number): StoredServerSnapshot | null {
 
 function sanitizeNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function sanitizeText(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 function serializeRaw(raw: unknown): string | null {

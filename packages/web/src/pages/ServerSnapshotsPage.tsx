@@ -358,7 +358,7 @@ function CurrentPlayersCard({ snapshot, status }: CurrentPlayersCardProps) {
     <Card withBorder padding="md" shadow="sm">
       <Group justify="space-between" align="center" mb="md">
         <div>
-          <Title order={4}>Players online right now</Title>
+          <Title order={4}>{snapshot?.players?.length || "?"} players online right now</Title>
           {snapshot ? (
             <Text size="sm" c="dimmed">
               Updated {formatRelativeTime(snapshot.queriedAt)} ({formatTime(snapshot.queriedAt)})
@@ -382,7 +382,7 @@ function CurrentPlayersCard({ snapshot, status }: CurrentPlayersCardProps) {
       ) : snapshot.players.length === 0 ? (
         <Text>No player names reported in the latest snapshot.</Text>
       ) : (
-        <ScrollArea h={220}>
+        <ScrollArea>
           <Table highlightOnHover>
             <Table.Thead>
               <Table.Tr>
