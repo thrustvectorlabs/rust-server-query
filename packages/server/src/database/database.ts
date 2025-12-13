@@ -54,6 +54,22 @@ type PlayerRow = {
   raw_json: string | null;
 };
 
+type DatabaseSummaryRow = {
+  snapshot_count: number;
+  unique_players: number;
+  server_count: number;
+};
+
+type SessionCountRow = {
+  total_sessions: number;
+};
+
+type PlayerSessionRow = {
+  player_name: string;
+  session_count: number;
+  first_seen: number;
+};
+
 const db: BetterSqliteDatabase = new Database(DATABASE_PATH);
 
 db.pragma('journal_mode = WAL');
@@ -223,6 +239,90 @@ FROM snapshot_query_metrics
 ORDER BY ip_address ASC, route ASC
 `);
 
+const selectDatabaseSummaryStmt = db.prepare<never, DatabaseSummaryRow>(`
+SELECT
+  (SELECT COUNT(*) FROM server_snapshots) AS snapshot_count,
+  (SELECT COUNT(DISTINCT player_name) FROM player_observations) AS unique_players,
+  (SELECT COUNT(*) FROM servers) AS server_count
+`);
+
+const countSessionStartsStmt = db.prepare<never, SessionCountRow>(`
+WITH ordered AS (
+  SELECT
+    po.player_name,
+    ss.server_type,
+    ss.host,
+    ss.port,
+    ss.id AS snapshot_id,
+    ss.queried_at,
+    LAG(ss.id) OVER (
+      PARTITION BY ss.server_type, ss.host, ss.port
+      ORDER BY ss.queried_at, ss.id
+    ) AS prev_snapshot_id
+  FROM player_observations po
+  JOIN server_snapshots ss ON ss.id = po.snapshot_id
+),
+session_flags AS (
+  SELECT
+    CASE
+      WHEN o.prev_snapshot_id IS NULL THEN 1
+      WHEN NOT EXISTS (
+        SELECT 1 FROM player_observations prev
+        WHERE prev.snapshot_id = o.prev_snapshot_id
+          AND prev.player_name = o.player_name
+      ) THEN 1
+      ELSE 0
+    END AS is_session_start
+  FROM ordered o
+)
+SELECT COALESCE(SUM(is_session_start), 0) AS total_sessions
+FROM session_flags
+`);
+
+const listPlayerSessionsStmt = db.prepare<never, PlayerSessionRow>(`
+WITH ordered AS (
+  SELECT
+    po.player_name,
+    ss.server_type,
+    ss.host,
+    ss.port,
+    ss.id AS snapshot_id,
+    ss.queried_at,
+    LAG(ss.id) OVER (
+      PARTITION BY ss.server_type, ss.host, ss.port
+      ORDER BY ss.queried_at, ss.id
+    ) AS prev_snapshot_id
+  FROM player_observations po
+  JOIN server_snapshots ss ON ss.id = po.snapshot_id
+),
+session_flags AS (
+  SELECT
+    o.player_name,
+    o.queried_at,
+    CASE
+      WHEN o.prev_snapshot_id IS NULL THEN 1
+      WHEN NOT EXISTS (
+        SELECT 1 FROM player_observations prev
+        WHERE prev.snapshot_id = o.prev_snapshot_id
+          AND prev.player_name = o.player_name
+      ) THEN 1
+      ELSE 0
+    END AS is_session_start
+  FROM ordered o
+),
+aggregated AS (
+  SELECT
+    player_name,
+    SUM(is_session_start) AS session_count,
+    MIN(queried_at) AS first_seen
+  FROM session_flags
+  GROUP BY player_name
+)
+SELECT player_name, session_count, first_seen
+FROM aggregated
+ORDER BY session_count DESC, player_name ASC
+`);
+
 const pruneSnapshotsStmt = db.prepare<{
   serverType: string;
   host: string;
@@ -322,6 +422,19 @@ export interface SnapshotQueryMetric {
   totalQueries: number;
   lastQueriedAt: number;
   routes: SnapshotQueryRouteMetric[];
+}
+
+export interface DatabaseStats {
+  snapshotCount: number;
+  uniquePlayers: number;
+  totalSessions: number;
+  serverCount: number;
+}
+
+export interface PlayerSessionStats {
+  playerName: string;
+  sessionCount: number;
+  firstSeen: number;
 }
 
 const recordSnapshotTx = db.transaction((snapshot: ServerSnapshotInput): number => {
@@ -515,6 +628,27 @@ export function listSnapshotQueryMetrics(): SnapshotQueryMetric[] {
       ? b.lastQueriedAt - a.lastQueriedAt
       : b.totalQueries - a.totalQueries,
   );
+}
+
+export function getDatabaseStats(): DatabaseStats {
+  const summaryRow = selectDatabaseSummaryStmt.get();
+  const sessionRow = countSessionStartsStmt.get();
+
+  return {
+    snapshotCount: sanitizeNumber(summaryRow?.snapshot_count) ?? 0,
+    uniquePlayers: sanitizeNumber(summaryRow?.unique_players) ?? 0,
+    totalSessions: sanitizeNumber(sessionRow?.total_sessions) ?? 0,
+    serverCount: sanitizeNumber(summaryRow?.server_count) ?? 0,
+  };
+}
+
+export function listPlayerSessionStats(): PlayerSessionStats[] {
+  const rows = listPlayerSessionsStmt.all();
+  return rows.map((row) => ({
+    playerName: row.player_name,
+    sessionCount: sanitizeNumber(row.session_count) ?? 0,
+    firstSeen: sanitizeNumber(row.first_seen) ?? 0,
+  }));
 }
 
 function mapSnapshotRow(row: SnapshotRow): StoredServerSnapshot {

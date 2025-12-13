@@ -47,3 +47,24 @@ export interface LatestSnapshotResponse {
   server: ServerIdentifier;
   snapshot: ServerSnapshot;
 }
+
+export interface DatabaseStats {
+  snapshotCount: number;
+  uniquePlayers: number;
+  totalSessions: number;
+  serverCount: number;
+}
+
+export interface DatabaseStatsResponse {
+  stats: DatabaseStats;
+}
+
+export interface PlayerSessionStat {
+  playerName: string;
+  sessionCount: number;
+  firstSeen: number;
+}
+
+export interface PlayerSessionsResponse {
+  players: PlayerSessionStat[];
+}

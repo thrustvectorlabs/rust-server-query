@@ -6,6 +6,8 @@ import {
   getRecentSnapshots,
   listServers,
   listSnapshotQueryMetrics,
+  getDatabaseStats,
+  listPlayerSessionStats,
   recordSnapshotQueryMetric,
   type ServerIdentifier,
 } from '../database/database.js';
@@ -77,6 +79,16 @@ export const startWebServer = () => {
   app.get('/api/metrics/snapshot-queries', (_req, res) => {
     const metrics = listSnapshotQueryMetrics();
     res.json({ metrics });
+  });
+
+  app.get('/api/internal/database-stats', (_req, res) => {
+    const stats = getDatabaseStats();
+    res.json({ stats });
+  });
+
+  app.get('/api/internal/player-sessions', (_req, res) => {
+    const players = listPlayerSessionStats();
+    res.json({ players });
   });
 
   app.listen(config.webServer.port, () => {
