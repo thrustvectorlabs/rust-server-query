@@ -118,11 +118,11 @@ export function ServerSnapshotsPage() {
               </Badge>
             )}
           </Group>
-          {latest && (
+          {/* {latest && (
             <Text c="dimmed" size="sm" mt="xs">
               Last snapshot {formatRelativeTime(latest.queriedAt)} ({formatTime(latest.queriedAt)})
             </Text>
-          )}
+          )} */}
         </div>
 
         <NumberInput
@@ -210,6 +210,7 @@ export function ServerSnapshotsPage() {
         </Stack>
       )}
     </Stack>
+    
   );
 }
 
@@ -354,11 +355,18 @@ function CurrentPlayersCard({ snapshot, status }: CurrentPlayersCardProps) {
     );
   };
 
+  const getTitle = () => {
+    if (!snapshot) {
+      return 'No player data available';
+    }
+    return `${snapshot?.players?.length || "?"} players online right now`;
+  }
+
   return (
     <Card withBorder padding="md" shadow="sm">
       <Group justify="space-between" align="center" mb="md">
         <div>
-          <Title order={4}>{snapshot?.players?.length || "?"} players online right now</Title>
+          <Title order={4}>{getTitle()}</Title>
           {snapshot ? (
             <Text size="sm" c="dimmed">
               Updated {formatRelativeTime(snapshot.queriedAt)} ({formatTime(snapshot.queriedAt)})
