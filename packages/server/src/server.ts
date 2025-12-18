@@ -9,8 +9,8 @@ import { logMessage, loggingGroups } from './logger/logger.js';
 
 // Defaults
 const SERVER_TYPE = 'rust';
-const SERVER_HOST = '136.243.18.104';
-const SERVER_PORT = 28017;
+const SERVER_HOST = '185.216.144.102';
+const SERVER_PORT = 28015;
 const DEFAULT_POLL_INTERVAL_SECONDS = 20;
 
 let pollIntervalMs = DEFAULT_POLL_INTERVAL_SECONDS * 1000;
