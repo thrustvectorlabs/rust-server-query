@@ -12,7 +12,9 @@ function resolveBaseUrl(): string {
     return configured.trim().replace(/\/+$/, '') || DEFAULT_BASE_URL;
   }
 
-  return DEFAULT_BASE_URL;
+  const baseUrl = typeof import.meta.env.BASE_URL === 'string' ? import.meta.env.BASE_URL : '/';
+  const baseTrimmed = baseUrl.replace(/\/+$/, '');
+  return `${baseTrimmed}${DEFAULT_BASE_URL}` || DEFAULT_BASE_URL;
 }
 
 export async function apiGet<T>(path: string, init?: RequestInit): Promise<T> {
