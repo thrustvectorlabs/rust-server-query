@@ -4,6 +4,7 @@ node_modules
 .env
 packages/web/.env
 packges/web/dist
+.DS_Store
 
 # Server
 packages/server/data/*
