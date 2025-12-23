@@ -32,18 +32,16 @@ export const startWebServer = () => {
     next();
   });
 
-  const router = express.Router();
-
-  router.get('/', (_req, res) => {
+  app.get('/', (_req, res) => {
     res.send('Rust Server Query Web Server is running.');
   });
 
-  router.get('/api/servers', (_req, res) => {
+  app.get('/api/servers', (_req, res) => {
     const servers = listServers();
     res.json({ servers });
   });
 
-  router.get('/api/servers/:type/:host/:port/snapshots', (req, res) => {
+  app.get('/api/servers/:type/:host/:port/snapshots', (req, res) => {
     const server = parseServerIdentifier(req.params);
     if (!server) {
       res.status(400).json({ error: 'Invalid server identifier.' });
@@ -61,7 +59,7 @@ export const startWebServer = () => {
     res.json({ server, snapshots, limit });
   });
 
-  router.get('/api/servers/:type/:host/:port/latest', (req, res) => {
+  app.get('/api/servers/:type/:host/:port/latest', (req, res) => {
     const server = parseServerIdentifier(req.params);
     if (!server) {
       res.status(400).json({ error: 'Invalid server identifier.' });
@@ -78,32 +76,23 @@ export const startWebServer = () => {
     res.json({ server, snapshot });
   });
 
-  router.get('/api/metrics/snapshot-queries', (_req, res) => {
+  app.get('/api/metrics/snapshot-queries', (_req, res) => {
     const metrics = listSnapshotQueryMetrics();
     res.json({ metrics });
   });
 
-  router.get('/api/internal/database-stats', (_req, res) => {
+  app.get('/api/internal/database-stats', (_req, res) => {
     const stats = getDatabaseStats();
     res.json({ stats });
   });
 
-  router.get('/api/internal/player-sessions', (_req, res) => {
+  app.get('/api/internal/player-sessions', (_req, res) => {
     const players = listPlayerSessionStats();
     res.json({ players });
   });
 
-  app.use(config.webServer.basePath, router);
-
   app.listen(config.webServer.port, () => {
-    const base =
-      config.webServer.basePath && config.webServer.basePath.length > 0
-        ? config.webServer.basePath
-        : '/';
-    logMessage(
-      loggingGroups.WEBSERVER,
-      `Web server listening on port ${config.webServer.port} with base path "${base}"`,
-    );
+    logMessage(loggingGroups.WEBSERVER, `Web server listening on port ${config.webServer.port}`);
   });
 };
 
