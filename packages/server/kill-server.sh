@@ -1,0 +1,1 @@
+pkill -f "node dist/server.js"

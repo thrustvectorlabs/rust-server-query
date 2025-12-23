@@ -1,0 +1,1 @@
+nohup node dist/server.js > app.log 2>&1 &
