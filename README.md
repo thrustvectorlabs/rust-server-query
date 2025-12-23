@@ -2,36 +2,11 @@ Originally created on Ubuntu.
 
 Prerequisites:
 
-- gamedig
-- jq
+- node 24.9.0 (see .nvmrc)
 
 # Installation
 
-## gamedig
-
-`$ npm install -g gamedig`
-
-## jq
-
-`$ sudo apt update; sudo apt install jq`
-
-# To query a server:
-
-## Plain JSON
-
-gamedig --type rust --host 185.206.151.10 --port 28015
-
-## Pretty JSON
-
-gamedig --type rust --host 185.206.151.10 --port 28015 --pretty
-
-## Using jq, colorizes output
-
-gamedig --type rust --host 185.206.151.10 --port 28015 --pretty | jq
-
-## Extract certain types of fields from the JSON
-
-gamedig … | jq '.name, .map, .numplayers, .maxplayers'
+`yarn`
 
 ### References:
 
