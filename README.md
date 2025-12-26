@@ -1,35 +1,42 @@
 Originally created on Ubuntu.
 
 Prerequisites:
+
 - gamedig
 - jq
 
 # Installation
 
-## gamedig
-`$ npm install -g gamedig`
-
-## jq
-`$ sudo apt update; sudo apt install jq`
-
 # To query a server:
 
 ## Plain JSON
+
 gamedig --type rust --host 185.206.151.10 --port 28015
 
 ## Pretty JSON
+
 gamedig --type rust --host 185.206.151.10 --port 28015 --pretty
 
 ## Using jq, colorizes output
+
 gamedig --type rust --host 185.206.151.10 --port 28015 --pretty | jq
 
 ## Extract certain types of fields from the JSON
+
 gamedig … | jq '.name, .map, .numplayers, .maxplayers'
 
+# Server process:
+
+Run it: `nohup node server.js > server.log 2>&1 &`
+Find it: `pgrep -af "node server.js"`
+Kill it: `pkill -f "node server.js"`
+
 ### References:
+
 https://chatgpt.com/c/687604bc-8048-800f-a6b5-e6bbb980c529
 
 # Web API
+
 When the server runs (`npm run dev --workspace packages/server`), the Express app listens on port 3000 by default (see `packages/server/src/config.ts`).  
 Available endpoints:
 
@@ -46,6 +53,7 @@ curl http://localhost:3000/api/servers/rust/136.243.18.104/28017/latest | jq
 ```
 
 # Web Dashboard
+
 The React dashboard lives in `packages/web` and is built with Vite, React, Mantine, and React Query.
 
 - Install dependencies: `yarn install`
