@@ -8,6 +8,12 @@ Prerequisites:
 
 `yarn`
 
+# Server process:
+
+Run it: `nohup node server.js > server.log 2>&1 &`
+Find it: `pgrep -af "node server.js"`
+Kill it: `pkill -f "node server.js"`
+
 ### References:
 
 https://chatgpt.com/c/687604bc-8048-800f-a6b5-e6bbb980c529

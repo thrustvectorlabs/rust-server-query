@@ -1,0 +1,1 @@
+sudo rsync -a /root/development/rust-server-query/packages/web/dist/ /var/www/rust-server-query/
