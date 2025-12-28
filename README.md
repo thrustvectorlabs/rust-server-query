@@ -39,3 +39,16 @@ The React dashboard lives in `packages/web` and is built with Vite, React, Manti
 - Build for production: `yarn build:web`
 - Preview the production bundle: `yarn preview:web`
 - Configure the API target by copying `packages/web/.env.example` to `packages/web/.env` (or export `VITE_API_URL` in the environment) and setting the URL of the deployed server before running `yarn build:web`.
+
+# Internal URLs
+
+These routes are intended for internal diagnostics and are not linked from the main dashboard navigation.
+
+API:
+
+- `GET /api/internal/database-stats` – Database table counts and aggregate size statistics.
+- `GET /api/internal/player-sessions` – Aggregated player session metrics used by the internal stats UI.
+
+Web UI:
+
+- `/internal/database-stats` – React page that visualizes the internal database stats and player sessions (calls the API routes above).
