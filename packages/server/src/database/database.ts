@@ -14,14 +14,6 @@ mkdirSync(DATA_DIRECTORY, { recursive: true });
 
 type BetterSqliteDatabase = InstanceType<typeof Database>;
 
-type SnapshotKey = {
-  serverType: string;
-  host: string;
-  port: number;
-};
-
-type SnapshotKeyWithLimit = SnapshotKey & { limit: number };
-
 type ServerRow = {
   server_type: string;
   host: string;
@@ -31,37 +23,26 @@ type ServerRow = {
   max_players: number | null;
   current_players: number | null;
   last_ping: number | null;
-  last_snapshot_at: number;
+  last_seen_at: number;
 };
 
-type SnapshotRow = {
+type ActiveSessionRow = {
   id: number;
-  server_type: string;
-  host: string;
-  port: number;
-  name: string | null;
-  map: string | null;
-  num_players: number | null;
-  max_players: number | null;
-  ping: number | null;
-  queried_at: number;
+  player_name: string;
+  steam_id: string | null;
+  started_at: number;
+  last_seen_at: number;
 };
 
-type PlayerRow = {
-  player_name: string;
-  score: number | null;
-  time: number | null;
-  raw_json: string | null;
+type SessionRow = ActiveSessionRow & {
+  ended_at: number | null;
 };
 
 type DatabaseSummaryRow = {
-  snapshot_count: number;
+  total_sessions: number;
   unique_players: number;
   server_count: number;
-};
-
-type SessionCountRow = {
-  total_sessions: number;
+  active_sessions: number;
 };
 
 type PlayerSessionRow = {
@@ -70,10 +51,33 @@ type PlayerSessionRow = {
   first_seen: number;
 };
 
+type ApiQueryMetricRow = {
+  ip_address: string;
+  route: string;
+  user_agent: string | null;
+  last_queried_at: number;
+  query_count: number;
+};
+
 const db: BetterSqliteDatabase = new Database(DATABASE_PATH);
 
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
+
+const SCHEMA_VERSION = 2;
+const currentVersion = Number(db.pragma('user_version', { simple: true }));
+
+if (currentVersion !== SCHEMA_VERSION) {
+  db.exec(`
+    DROP TABLE IF EXISTS player_observations;
+    DROP TABLE IF EXISTS server_snapshots;
+    DROP TABLE IF EXISTS snapshot_query_metrics;
+    DROP TABLE IF EXISTS player_sessions;
+    DROP TABLE IF EXISTS servers;
+    DROP TABLE IF EXISTS api_query_metrics;
+  `);
+  db.pragma(`user_version = ${SCHEMA_VERSION}`);
+}
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS servers (
@@ -85,35 +89,24 @@ CREATE TABLE IF NOT EXISTS servers (
   max_players INTEGER,
   current_players INTEGER,
   last_ping INTEGER,
-  last_snapshot_at INTEGER NOT NULL,
+  last_seen_at INTEGER NOT NULL,
   PRIMARY KEY (server_type, host, port)
 );
 
-CREATE TABLE IF NOT EXISTS server_snapshots (
+CREATE TABLE IF NOT EXISTS player_sessions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   server_type TEXT NOT NULL,
   host TEXT NOT NULL,
   port INTEGER NOT NULL,
-  name TEXT,
-  map TEXT,
-  num_players INTEGER,
-  max_players INTEGER,
-  ping INTEGER,
-  queried_at INTEGER NOT NULL,
+  player_name TEXT NOT NULL,
+  steam_id TEXT,
+  started_at INTEGER NOT NULL,
+  ended_at INTEGER,
+  last_seen_at INTEGER NOT NULL,
   FOREIGN KEY (server_type, host, port) REFERENCES servers(server_type, host, port) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS player_observations (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  snapshot_id INTEGER NOT NULL,
-  player_name TEXT NOT NULL,
-  score REAL,
-  time REAL,
-  raw_json TEXT,
-  FOREIGN KEY (snapshot_id) REFERENCES server_snapshots(id) ON DELETE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS snapshot_query_metrics (
+CREATE TABLE IF NOT EXISTS api_query_metrics (
   ip_address TEXT NOT NULL,
   route TEXT NOT NULL,
   user_agent TEXT,
@@ -122,11 +115,21 @@ CREATE TABLE IF NOT EXISTS snapshot_query_metrics (
   PRIMARY KEY (ip_address, route)
 );
 
-CREATE INDEX IF NOT EXISTS idx_server_snapshots_lookup ON server_snapshots(server_type, host, port, queried_at DESC);
-CREATE INDEX IF NOT EXISTS idx_player_observations_snapshot ON player_observations(snapshot_id);
-CREATE INDEX IF NOT EXISTS idx_player_observations_name ON player_observations(player_name);
-CREATE INDEX IF NOT EXISTS idx_snapshot_query_metrics_last ON snapshot_query_metrics(last_queried_at);
+CREATE INDEX IF NOT EXISTS idx_player_sessions_active
+  ON player_sessions(server_type, host, port, ended_at, last_seen_at);
+CREATE INDEX IF NOT EXISTS idx_player_sessions_name
+  ON player_sessions(player_name);
+CREATE INDEX IF NOT EXISTS idx_api_query_metrics_last
+  ON api_query_metrics(last_queried_at);
 `);
+
+const closeOpenSessionsStmt = db.prepare<{ timestamp: number }>(`
+UPDATE player_sessions
+SET ended_at = @timestamp
+WHERE ended_at IS NULL
+`);
+
+closeOpenSessionsStmt.run({ timestamp: Date.now() });
 
 const upsertServerStmt = db.prepare<{
   serverType: string;
@@ -139,7 +142,7 @@ const upsertServerStmt = db.prepare<{
   ping: number | null;
   timestamp: number;
 }>(`
-INSERT INTO servers (server_type, host, port, name, map, max_players, current_players, last_ping, last_snapshot_at)
+INSERT INTO servers (server_type, host, port, name, map, max_players, current_players, last_ping, last_seen_at)
 VALUES (@serverType, @host, @port, @name, @map, @maxPlayers, @currentPlayers, @ping, @timestamp)
 ON CONFLICT(server_type, host, port) DO UPDATE SET
   name = excluded.name,
@@ -147,204 +150,112 @@ ON CONFLICT(server_type, host, port) DO UPDATE SET
   max_players = excluded.max_players,
   current_players = excluded.current_players,
   last_ping = excluded.last_ping,
-  last_snapshot_at = excluded.last_snapshot_at;
+  last_seen_at = excluded.last_seen_at;
 `);
 
-const insertSnapshotStmt = db.prepare<{
+const selectServersStmt = db.prepare<never, ServerRow>(`
+SELECT server_type, host, port, name, map, max_players, current_players, last_ping, last_seen_at
+FROM servers
+ORDER BY server_type, host, port
+`);
+
+const selectServerStmt = db.prepare<{ serverType: string; host: string; port: number }, ServerRow>(`
+SELECT server_type, host, port, name, map, max_players, current_players, last_ping, last_seen_at
+FROM servers
+WHERE server_type = @serverType AND host = @host AND port = @port
+`);
+
+const selectActiveSessionsStmt = db.prepare<
+  { serverType: string; host: string; port: number },
+  ActiveSessionRow
+>(`
+SELECT id, player_name, steam_id, started_at, last_seen_at
+FROM player_sessions
+WHERE server_type = @serverType AND host = @host AND port = @port AND ended_at IS NULL
+ORDER BY started_at ASC, id ASC
+`);
+
+const selectRecentSessionsStmt = db.prepare<
+  { serverType: string; host: string; port: number; limit: number },
+  SessionRow
+>(`
+SELECT id, player_name, steam_id, started_at, ended_at, last_seen_at
+FROM player_sessions
+WHERE server_type = @serverType AND host = @host AND port = @port
+ORDER BY started_at DESC, id DESC
+LIMIT @limit
+`);
+
+const updateActiveSessionStmt = db.prepare<{
   serverType: string;
   host: string;
   port: number;
-  name: string | null;
-  map: string | null;
-  numPlayers: number | null;
-  maxPlayers: number | null;
-  ping: number | null;
-  timestamp: number;
-}>(`
-INSERT INTO server_snapshots (server_type, host, port, name, map, num_players, max_players, ping, queried_at)
-VALUES (@serverType, @host, @port, @name, @map, @numPlayers, @maxPlayers, @ping, @timestamp)
-`);
-
-const insertPlayerObservationStmt = db.prepare<{
-  snapshotId: number;
   playerName: string;
-  score: number | null;
-  time: number | null;
-  rawJson: string | null;
+  lastSeenAt: number;
+  steamId: string | null;
 }>(`
-INSERT INTO player_observations (snapshot_id, player_name, score, time, raw_json)
-VALUES (@snapshotId, @playerName, @score, @time, @rawJson)
+UPDATE player_sessions
+SET last_seen_at = @lastSeenAt,
+    steam_id = COALESCE(@steamId, steam_id)
+WHERE server_type = @serverType
+  AND host = @host
+  AND port = @port
+  AND player_name = @playerName
+  AND ended_at IS NULL
 `);
 
-const upsertSnapshotQueryMetricStmt = db.prepare<{
+const insertSessionStmt = db.prepare<{
+  serverType: string;
+  host: string;
+  port: number;
+  playerName: string;
+  steamId: string | null;
+  startedAt: number;
+  lastSeenAt: number;
+}>(`
+INSERT INTO player_sessions (server_type, host, port, player_name, steam_id, started_at, last_seen_at)
+VALUES (@serverType, @host, @port, @playerName, @steamId, @startedAt, @lastSeenAt)
+`);
+
+const closeSessionStmt = db.prepare<{ id: number; endedAt: number }>(`
+UPDATE player_sessions
+SET ended_at = @endedAt
+WHERE id = @id
+`);
+
+const selectDatabaseSummaryStmt = db.prepare<never, DatabaseSummaryRow>(`
+SELECT
+  (SELECT COUNT(*) FROM player_sessions) AS total_sessions,
+  (SELECT COUNT(DISTINCT player_name) FROM player_sessions) AS unique_players,
+  (SELECT COUNT(*) FROM servers) AS server_count,
+  (SELECT COUNT(*) FROM player_sessions WHERE ended_at IS NULL) AS active_sessions
+`);
+
+const listPlayerSessionsStmt = db.prepare<never, PlayerSessionRow>(`
+SELECT player_name, COUNT(*) AS session_count, MIN(started_at) AS first_seen
+FROM player_sessions
+GROUP BY player_name
+ORDER BY session_count DESC, player_name ASC
+`);
+
+const upsertApiQueryMetricStmt = db.prepare<{
   ipAddress: string;
   route: string;
   userAgent: string | null;
   timestamp: number;
 }>(`
-INSERT INTO snapshot_query_metrics (ip_address, route, user_agent, last_queried_at, query_count)
+INSERT INTO api_query_metrics (ip_address, route, user_agent, last_queried_at, query_count)
 VALUES (@ipAddress, @route, @userAgent, @timestamp, 1)
 ON CONFLICT(ip_address, route) DO UPDATE SET
-  user_agent = COALESCE(excluded.user_agent, snapshot_query_metrics.user_agent),
+  user_agent = COALESCE(excluded.user_agent, api_query_metrics.user_agent),
   last_queried_at = excluded.last_queried_at,
-  query_count = snapshot_query_metrics.query_count + 1;
+  query_count = api_query_metrics.query_count + 1;
 `);
 
-const selectSnapshotByIdStmt = db.prepare<{ id: number }, SnapshotRow>(`
-SELECT id, server_type, host, port, name, map, num_players, max_players, ping, queried_at
-FROM server_snapshots
-WHERE id = @id
-`);
-
-const selectLatestSnapshotStmt = db.prepare<SnapshotKey, SnapshotRow>(`
-SELECT id, server_type, host, port, name, map, num_players, max_players, ping, queried_at
-FROM server_snapshots
-WHERE server_type = @serverType AND host = @host AND port = @port
-ORDER BY queried_at DESC
-LIMIT 1
-`);
-
-const selectRecentSnapshotsStmt = db.prepare<SnapshotKeyWithLimit, SnapshotRow>(`
-SELECT id, server_type, host, port, name, map, num_players, max_players, ping, queried_at
-FROM server_snapshots
-WHERE server_type = @serverType AND host = @host AND port = @port
-ORDER BY queried_at DESC
-LIMIT @limit
-`);
-
-const selectSnapshotPlayersStmt = db.prepare<{ snapshotId: number }, PlayerRow>(`
-SELECT player_name, score, time, raw_json
-FROM player_observations
-WHERE snapshot_id = @snapshotId
-ORDER BY player_name ASC
-`);
-
-const selectServersStmt = db.prepare<never, ServerRow>(`
-SELECT server_type, host, port, name, map, max_players, current_players, last_ping, last_snapshot_at
-FROM servers
-ORDER BY server_type, host, port
-`);
-
-type SnapshotQueryMetricRow = {
-  ip_address: string;
-  route: string;
-  user_agent: string | null;
-  last_queried_at: number;
-  query_count: number;
-};
-
-const selectSnapshotQueryMetricsStmt = db.prepare<never, SnapshotQueryMetricRow>(`
+const selectApiQueryMetricsStmt = db.prepare<never, ApiQueryMetricRow>(`
 SELECT ip_address, route, user_agent, last_queried_at, query_count
-FROM snapshot_query_metrics
+FROM api_query_metrics
 ORDER BY ip_address ASC, route ASC
-`);
-
-const selectDatabaseSummaryStmt = db.prepare<never, DatabaseSummaryRow>(`
-SELECT
-  (SELECT COUNT(*) FROM server_snapshots) AS snapshot_count,
-  (SELECT COUNT(DISTINCT player_name) FROM player_observations) AS unique_players,
-  (SELECT COUNT(*) FROM servers) AS server_count
-`);
-
-const countSessionStartsStmt = db.prepare<never, SessionCountRow>(`
-WITH ordered AS (
-  SELECT
-    po.player_name,
-    ss.server_type,
-    ss.host,
-    ss.port,
-    ss.id AS snapshot_id,
-    ss.queried_at,
-    LAG(ss.id) OVER (
-      PARTITION BY ss.server_type, ss.host, ss.port
-      ORDER BY ss.queried_at, ss.id
-    ) AS prev_snapshot_id
-  FROM player_observations po
-  JOIN server_snapshots ss ON ss.id = po.snapshot_id
-),
-session_flags AS (
-  SELECT
-    CASE
-      WHEN o.prev_snapshot_id IS NULL THEN 1
-      WHEN NOT EXISTS (
-        SELECT 1 FROM player_observations prev
-        WHERE prev.snapshot_id = o.prev_snapshot_id
-          AND prev.player_name = o.player_name
-      ) THEN 1
-      ELSE 0
-    END AS is_session_start
-  FROM ordered o
-)
-SELECT COALESCE(SUM(is_session_start), 0) AS total_sessions
-FROM session_flags
-`);
-
-const listPlayerSessionsStmt = db.prepare<never, PlayerSessionRow>(`
-WITH ordered AS (
-  SELECT
-    po.player_name,
-    ss.server_type,
-    ss.host,
-    ss.port,
-    ss.id AS snapshot_id,
-    ss.queried_at,
-    LAG(ss.id) OVER (
-      PARTITION BY ss.server_type, ss.host, ss.port
-      ORDER BY ss.queried_at, ss.id
-    ) AS prev_snapshot_id
-  FROM player_observations po
-  JOIN server_snapshots ss ON ss.id = po.snapshot_id
-),
-session_flags AS (
-  SELECT
-    o.player_name,
-    o.queried_at,
-    CASE
-      WHEN o.prev_snapshot_id IS NULL THEN 1
-      WHEN NOT EXISTS (
-        SELECT 1 FROM player_observations prev
-        WHERE prev.snapshot_id = o.prev_snapshot_id
-          AND prev.player_name = o.player_name
-      ) THEN 1
-      ELSE 0
-    END AS is_session_start
-  FROM ordered o
-),
-aggregated AS (
-  SELECT
-    player_name,
-    SUM(is_session_start) AS session_count,
-    MIN(queried_at) AS first_seen
-  FROM session_flags
-  GROUP BY player_name
-)
-SELECT player_name, session_count, first_seen
-FROM aggregated
-ORDER BY session_count DESC, player_name ASC
-`);
-
-const pruneSnapshotsStmt = db.prepare<{
-  serverType: string;
-  host: string;
-  port: number;
-  retain: number;
-}>(`
-WITH ranked AS (
-  SELECT
-    id,
-    ROW_NUMBER() OVER (PARTITION BY server_type, host, port ORDER BY queried_at DESC) AS rn
-  FROM server_snapshots
-  WHERE server_type = @serverType AND host = @host AND port = @port
-)
-DELETE FROM server_snapshots
-WHERE id IN (
-  SELECT id FROM ranked WHERE rn > @retain
-);
-`);
-
-const pruneServersStmt = db.prepare<{ threshold: number }>(`
-DELETE FROM servers
-WHERE last_snapshot_at < @threshold;
 `);
 
 export interface ServerIdentifier {
@@ -353,14 +264,25 @@ export interface ServerIdentifier {
   port: number;
 }
 
-export interface PlayerSnapshotInput {
-  name: string;
-  score?: number | null;
-  time?: number | null;
-  raw?: unknown;
+export interface ServerDetails extends ServerIdentifier {
+  name: string | null;
+  map: string | null;
+  currentPlayers: number | null;
+  maxPlayers: number | null;
+  ping: number | null;
 }
 
-export interface ServerSnapshotInput {
+export interface ServerSummary {
+  server: ServerDetails;
+  lastSeenAt: number;
+}
+
+export interface PlayerSessionInput {
+  name: string;
+  steamId?: string | null;
+}
+
+export interface ServerQueryInput {
   server: ServerIdentifier & {
     name?: string | null;
     map?: string | null;
@@ -368,66 +290,47 @@ export interface ServerSnapshotInput {
     maxPlayers?: number | null;
     ping?: number | null;
   };
-  players?: PlayerSnapshotInput[];
+  players?: PlayerSessionInput[];
   queriedAt?: number;
 }
 
-export interface PlayerObservation {
-  name: string;
-  score: number | null;
-  time: number | null;
-  raw?: unknown;
+export interface ActivePlayerSession {
+  playerName: string;
+  steamId: string | null;
+  startedAt: number;
+  lastSeenAt: number;
 }
 
-export interface StoredServerSnapshot {
+export interface PlayerSessionRecord extends ActivePlayerSession {
   id: number;
-  server: ServerIdentifier & {
-    name: string | null;
-    map: string | null;
-    numPlayers: number | null;
-    maxPlayers: number | null;
-    ping: number | null;
-  };
-  queriedAt: number;
-  players: PlayerObservation[];
+  endedAt: number | null;
 }
 
-export interface StoredServerSummary {
-  server: ServerIdentifier & {
-    name: string | null;
-    map: string | null;
-    currentPlayers: number | null;
-    maxPlayers: number | null;
-    ping: number | null;
-  };
-  lastSnapshotAt: number;
-}
-
-export interface SnapshotQueryLogInput {
+export interface ApiQueryLogInput {
   ipAddress: string;
   route: string;
   userAgent?: string | null;
   queriedAt?: number;
 }
 
-export interface SnapshotQueryRouteMetric {
+export interface ApiQueryRouteMetric {
   route: string;
   queryCount: number;
   lastQueriedAt: number;
   lastUserAgent: string | null;
 }
 
-export interface SnapshotQueryMetric {
+export interface ApiQueryMetric {
   ipAddress: string;
   totalQueries: number;
   lastQueriedAt: number;
-  routes: SnapshotQueryRouteMetric[];
+  routes: ApiQueryRouteMetric[];
 }
 
 export interface DatabaseStats {
-  snapshotCount: number;
-  uniquePlayers: number;
   totalSessions: number;
+  uniquePlayers: number;
+  activeSessions: number;
   serverCount: number;
 }
 
@@ -437,10 +340,10 @@ export interface PlayerSessionStats {
   firstSeen: number;
 }
 
-const recordSnapshotTx = db.transaction((snapshot: ServerSnapshotInput): number => {
-  const timestamp = snapshot.queriedAt ?? Date.now();
-  const players = snapshot.players ?? [];
-  const server = snapshot.server;
+const recordServerQueryTx = db.transaction((query: ServerQueryInput): void => {
+  const timestamp = query.queriedAt ?? Date.now();
+  const players = query.players ?? [];
+  const server = query.server;
   const declaredPlayerCount = sanitizeNumber(server.numPlayers);
   const fallbackPlayerCount = sanitizeNumber(players.length);
   const currentPlayers = declaredPlayerCount ?? fallbackPlayerCount;
@@ -457,70 +360,58 @@ const recordSnapshotTx = db.transaction((snapshot: ServerSnapshotInput): number 
     timestamp,
   });
 
-  const insertResult = insertSnapshotStmt.run({
+  const activeSessions = selectActiveSessionsStmt.all({
     serverType: server.type,
     host: server.host,
     port: server.port,
-    name: server.name ?? null,
-    map: server.map ?? null,
-    numPlayers: declaredPlayerCount ?? fallbackPlayerCount,
-    maxPlayers: sanitizeNumber(server.maxPlayers),
-    ping: sanitizeNumber(server.ping),
-    timestamp,
   });
 
-  const snapshotId = Number(insertResult.lastInsertRowid);
+  const seenNames = new Set<string>();
 
   for (const player of players) {
-    insertPlayerObservationStmt.run({
-      snapshotId,
-      playerName: player.name,
-      score: sanitizeNumber(player.score),
-      time: sanitizeNumber(player.time),
-      rawJson: serializeRaw(player.raw),
+    const playerName = normalizePlayerName(player.name);
+    if (!playerName || seenNames.has(playerName)) {
+      continue;
+    }
+
+    const steamId = sanitizeText(player.steamId ?? undefined);
+
+    seenNames.add(playerName);
+
+    const updateResult = updateActiveSessionStmt.run({
+      serverType: server.type,
+      host: server.host,
+      port: server.port,
+      playerName,
+      lastSeenAt: timestamp,
+      steamId,
     });
+
+    if (updateResult.changes === 0) {
+      insertSessionStmt.run({
+        serverType: server.type,
+        host: server.host,
+        port: server.port,
+        playerName,
+        steamId,
+        startedAt: timestamp,
+        lastSeenAt: timestamp,
+      });
+    }
   }
 
-  return snapshotId;
+  for (const session of activeSessions) {
+    if (!seenNames.has(session.player_name)) {
+      closeSessionStmt.run({ id: session.id, endedAt: timestamp });
+    }
+  }
 });
 
-export function recordServerSnapshot(snapshot: ServerSnapshotInput): StoredServerSnapshot {
-  const snapshotId = recordSnapshotTx(snapshot);
-  const stored = getSnapshotById(snapshotId);
-  if (!stored) {
-    throw new Error(`Failed to read snapshot ${snapshotId} after recording`);
-  }
-  return stored;
+export function recordServerQuery(query: ServerQueryInput): void {
+  recordServerQueryTx(query);
 }
 
-export function getLatestSnapshot(server: ServerIdentifier): StoredServerSnapshot | null {
-  const row = selectLatestSnapshotStmt.get({
-    serverType: server.type,
-    host: server.host,
-    port: server.port,
-  });
-
-  if (!row) {
-    return null;
-  }
-
-  return mapSnapshotRow(row);
-}
-
-export function getRecentSnapshots(
-  server: ServerIdentifier,
-  limit = 10,
-): StoredServerSnapshot[] {
-  const rows = selectRecentSnapshotsStmt.all({
-    serverType: server.type,
-    host: server.host,
-    port: server.port,
-    limit,
-  });
-  return rows.map((row) => mapSnapshotRow(row));
-}
-
-export function listServers(): StoredServerSummary[] {
+export function listServers(): ServerSummary[] {
   const rows = selectServersStmt.all() as ServerRow[];
   return rows.map((row) => ({
     server: {
@@ -533,35 +424,73 @@ export function listServers(): StoredServerSummary[] {
       maxPlayers: sanitizeNumber(row.max_players),
       ping: sanitizeNumber(row.last_ping),
     },
-    lastSnapshotAt: row.last_snapshot_at,
+    lastSeenAt: row.last_seen_at,
   }));
 }
 
-export function pruneOldSnapshots(options: {
-  server: ServerIdentifier;
-  retain: number;
-}): void {
-  pruneSnapshotsStmt.run({
-    serverType: options.server.type,
-    host: options.server.host,
-    port: options.server.port,
-    retain: options.retain,
+export function getServerSummary(server: ServerIdentifier): ServerSummary | null {
+  const row = selectServerStmt.get({
+    serverType: server.type,
+    host: server.host,
+    port: server.port,
   });
+
+  if (!row) {
+    return null;
+  }
+
+  return {
+    server: {
+      type: row.server_type,
+      host: row.host,
+      port: row.port,
+      name: row.name ?? null,
+      map: row.map ?? null,
+      currentPlayers: sanitizeNumber(row.current_players),
+      maxPlayers: sanitizeNumber(row.max_players),
+      ping: sanitizeNumber(row.last_ping),
+    },
+    lastSeenAt: row.last_seen_at,
+  };
 }
 
-export function pruneServersInactiveSince(thresholdTimestamp: number): void {
-  pruneServersStmt.run({ threshold: thresholdTimestamp });
+export function listActiveSessions(server: ServerIdentifier): ActivePlayerSession[] {
+  const rows = selectActiveSessionsStmt.all({
+    serverType: server.type,
+    host: server.host,
+    port: server.port,
+  }) as ActiveSessionRow[];
+
+  return rows.map((row) => ({
+    playerName: row.player_name,
+    steamId: row.steam_id ?? null,
+    startedAt: row.started_at,
+    lastSeenAt: row.last_seen_at,
+  }));
 }
 
-export function closeDatabase(): void {
-  db.close();
+export function listRecentSessions(
+  server: ServerIdentifier,
+  limit = 25,
+): PlayerSessionRecord[] {
+  const rows = selectRecentSessionsStmt.all({
+    serverType: server.type,
+    host: server.host,
+    port: server.port,
+    limit,
+  }) as SessionRow[];
+
+  return rows.map((row) => ({
+    id: row.id,
+    playerName: row.player_name,
+    steamId: row.steam_id ?? null,
+    startedAt: row.started_at,
+    lastSeenAt: row.last_seen_at,
+    endedAt: row.ended_at ?? null,
+  }));
 }
 
-export function getDatabaseConnection(): BetterSqliteDatabase {
-  return db;
-}
-
-export function recordSnapshotQueryMetric(log: SnapshotQueryLogInput): void {
+export function recordApiQueryMetric(log: ApiQueryLogInput): void {
   const ipAddress = sanitizeText(log.ipAddress);
   const route = sanitizeText(log.route);
 
@@ -572,7 +501,7 @@ export function recordSnapshotQueryMetric(log: SnapshotQueryLogInput): void {
   const timestamp = log.queriedAt ?? Date.now();
   const userAgent = sanitizeText(log.userAgent ?? undefined);
 
-  upsertSnapshotQueryMetricStmt.run({
+  upsertApiQueryMetricStmt.run({
     ipAddress,
     route,
     userAgent,
@@ -580,9 +509,9 @@ export function recordSnapshotQueryMetric(log: SnapshotQueryLogInput): void {
   });
 }
 
-export function listSnapshotQueryMetrics(): SnapshotQueryMetric[] {
-  const rows = selectSnapshotQueryMetricsStmt.all();
-  const metricsByIp = new Map<string, SnapshotQueryMetric>();
+export function listApiQueryMetrics(): ApiQueryMetric[] {
+  const rows = selectApiQueryMetricsStmt.all();
+  const metricsByIp = new Map<string, ApiQueryMetric>();
 
   for (const row of rows) {
     const ip = sanitizeText(row.ip_address);
@@ -616,28 +545,29 @@ export function listSnapshotQueryMetrics(): SnapshotQueryMetric[] {
     });
   }
 
-  return Array.from(metricsByIp.values()).map((metric) => ({
-    ...metric,
-    routes: metric.routes.sort((a, b) =>
-      b.lastQueriedAt === a.lastQueriedAt
-        ? b.queryCount - a.queryCount
-        : b.lastQueriedAt - a.lastQueriedAt,
-    ),
-  })).sort((a, b) =>
-    b.totalQueries === a.totalQueries
-      ? b.lastQueriedAt - a.lastQueriedAt
-      : b.totalQueries - a.totalQueries,
-  );
+  return Array.from(metricsByIp.values())
+    .map((metric) => ({
+      ...metric,
+      routes: metric.routes.sort((a, b) =>
+        b.lastQueriedAt === a.lastQueriedAt
+          ? b.queryCount - a.queryCount
+          : b.lastQueriedAt - a.lastQueriedAt,
+      ),
+    }))
+    .sort((a, b) =>
+      b.totalQueries === a.totalQueries
+        ? b.lastQueriedAt - a.lastQueriedAt
+        : b.totalQueries - a.totalQueries,
+    );
 }
 
 export function getDatabaseStats(): DatabaseStats {
   const summaryRow = selectDatabaseSummaryStmt.get();
-  const sessionRow = countSessionStartsStmt.get();
 
   return {
-    snapshotCount: sanitizeNumber(summaryRow?.snapshot_count) ?? 0,
+    totalSessions: sanitizeNumber(summaryRow?.total_sessions) ?? 0,
     uniquePlayers: sanitizeNumber(summaryRow?.unique_players) ?? 0,
-    totalSessions: sanitizeNumber(sessionRow?.total_sessions) ?? 0,
+    activeSessions: sanitizeNumber(summaryRow?.active_sessions) ?? 0,
     serverCount: sanitizeNumber(summaryRow?.server_count) ?? 0,
   };
 }
@@ -649,40 +579,6 @@ export function listPlayerSessionStats(): PlayerSessionStats[] {
     sessionCount: sanitizeNumber(row.session_count) ?? 0,
     firstSeen: sanitizeNumber(row.first_seen) ?? 0,
   }));
-}
-
-function mapSnapshotRow(row: SnapshotRow): StoredServerSnapshot {
-  const playerRows = selectSnapshotPlayersStmt.all({ snapshotId: row.id });
-  const players = playerRows.map((playerRow) => ({
-    name: playerRow.player_name,
-    score: sanitizeNumber(playerRow.score),
-    time: sanitizeNumber(playerRow.time),
-    raw: deserializeRaw(playerRow.raw_json),
-  }));
-
-  return {
-    id: row.id,
-    server: {
-      type: row.server_type,
-      host: row.host,
-      port: row.port,
-      name: row.name ?? null,
-      map: row.map ?? null,
-      numPlayers: sanitizeNumber(row.num_players),
-      maxPlayers: sanitizeNumber(row.max_players),
-      ping: sanitizeNumber(row.ping),
-    },
-    queriedAt: row.queried_at,
-    players,
-  };
-}
-
-function getSnapshotById(id: number): StoredServerSnapshot | null {
-  const row = selectSnapshotByIdStmt.get({ id });
-  if (!row) {
-    return null;
-  }
-  return mapSnapshotRow(row);
 }
 
 function sanitizeNumber(value: unknown): number | null {
@@ -698,24 +594,9 @@ function sanitizeText(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function serializeRaw(raw: unknown): string | null {
-  if (raw === undefined || raw === null) {
-    return null;
+function normalizePlayerName(value: unknown): string {
+  if (typeof value === 'string' && value.trim().length > 0) {
+    return value.trim();
   }
-  try {
-    return JSON.stringify(raw);
-  } catch {
-    return null;
-  }
-}
-
-function deserializeRaw(rawJson: unknown): unknown {
-  if (typeof rawJson !== 'string' || rawJson.length === 0) {
-    return undefined;
-  }
-  try {
-    return JSON.parse(rawJson);
-  } catch {
-    return rawJson;
-  }
+  return '(unnamed player)';
 }

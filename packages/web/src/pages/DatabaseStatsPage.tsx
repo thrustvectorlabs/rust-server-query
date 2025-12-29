@@ -49,8 +49,8 @@ export function DatabaseStatsPage() {
             <Badge color="gray" variant="light">Internal</Badge>
           </Group>
           <Text c="dimmed" size="sm">
-            Aggregate metrics derived from stored snapshots. Sessions count continuous presence of a
-            player across snapshots and restart once they disappear from a server&apos;s next snapshot.
+            Aggregate metrics derived from stored player sessions. Sessions start the first time a
+            player name appears on a server and end once they disappear from a valid query response.
           </Text>
         </div>
       </Group>
@@ -74,11 +74,11 @@ export function DatabaseStatsPage() {
           <SimpleGrid cols={{ base: 1, sm: 2, md: 4 }}>
             <StatCard label="Unique players" value={stats.uniquePlayers} />
             <StatCard
-              label="Recorded sessions"
-              value={stats.totalSessions}
-              tooltip="Session begins when a player first appears and ends once they drop out of the next snapshot."
+              label="Active sessions"
+              value={stats.activeSessions}
+              tooltip="Active sessions are players currently present in the latest valid server response."
             />
-            <StatCard label="Snapshots stored" value={stats.snapshotCount} />
+            <StatCard label="Recorded sessions" value={stats.totalSessions} />
             <StatCard label="Tracked servers" value={stats.serverCount} />
           </SimpleGrid>
 
@@ -191,7 +191,7 @@ function PlayerSessionsTable({ players, loading, error }: PlayerSessionsTablePro
           Failed to load player sessions: {error instanceof Error ? error.message : 'Unknown error'}
         </Text>
       ) : players.length === 0 ? (
-        <Text>No player observations recorded yet.</Text>
+        <Text>No player sessions recorded yet.</Text>
       ) : (
         <ScrollArea>
           <Table striped highlightOnHover withRowBorders={false}>

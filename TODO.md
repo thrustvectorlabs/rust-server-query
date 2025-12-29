@@ -3,5 +3,5 @@
 Is already done. Just thinking it may be lost whenever the container respawns. (This is the case, confirmed)
 
 [n] Read database upon startup to continue (not possible, there is no database)
-[x] Be able to continue when the server is down or sending invalid responses. Should not make a snapshot of that.
+[x] Be able to continue when the server is down or sending invalid responses. Should not change sessions for that.
 [x] Add logging
