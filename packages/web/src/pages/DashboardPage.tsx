@@ -64,7 +64,7 @@ export function DashboardPage() {
                 <Table.Th>Players</Table.Th>
                 <Table.Th>Ping</Table.Th>
                 <Table.Th>Map</Table.Th>
-                <Table.Th>Last Snapshot</Table.Th>
+                <Table.Th>Last Seen</Table.Th>
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
@@ -80,7 +80,7 @@ export function DashboardPage() {
 }
 
 function ServerRow({ summary }: { summary: ServerSummary }) {
-  const { server, lastSnapshotAt } = summary;
+  const { server, lastSeenAt } = summary;
   const route = `/servers/${server.type}/${server.host}/${server.port}`;
 
   return (
@@ -110,8 +110,8 @@ function ServerRow({ summary }: { summary: ServerSummary }) {
       </Table.Td>
       <Table.Td>{server.map ?? 'Unknown'}</Table.Td>
       <Table.Td>
-        <Tooltip label={formatTime(lastSnapshotAt)}>
-          <Text>{formatRelativeTime(lastSnapshotAt)}</Text>
+        <Tooltip label={formatTime(lastSeenAt)}>
+          <Text>{formatRelativeTime(lastSeenAt)}</Text>
         </Tooltip>
       </Table.Td>
     </Table.Tr>
