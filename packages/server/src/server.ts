@@ -6,7 +6,14 @@ import type { PlayerSessionInput, ServerIdentifier } from './database/database.j
 import { startWebServer } from './webserver/index.js';
 import { startSocketServer } from './websocket/socket.js';
 import { logMessage, loggingGroups } from './logger/logger.js';
-import { config } from '../../../config.js';
+
+type RootConfig = {
+  servers: ServerIdentifier[];
+};
+
+const { config } = (await import(
+  new URL('../../../config.js', import.meta.url).toString()
+)) as { config: RootConfig };
 
 const DEFAULT_POLL_INTERVAL_SECONDS = 20;
 

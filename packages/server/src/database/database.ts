@@ -65,7 +65,8 @@ db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
 const SCHEMA_VERSION = 2;
-const currentVersion = Number(db.pragma('user_version', { simple: true }));
+const versionRows = db.pragma('user_version') as Array<{ user_version: number }>;
+const currentVersion = Number(versionRows[0]?.user_version ?? 0);
 
 if (currentVersion !== SCHEMA_VERSION) {
   db.exec(`
