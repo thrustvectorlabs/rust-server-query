@@ -14,44 +14,42 @@ export interface ServerDetails extends ServerIdentifier {
 
 export interface ServerSummary {
   server: ServerDetails;
-  lastSnapshotAt: number;
+  lastSeenAt: number;
 }
 
 export interface ServersResponse {
   servers: ServerSummary[];
 }
 
-export interface PlayerObservation {
-  name: string;
-  score: number | null;
-  time: number | null;
-  raw?: unknown;
+export interface ActivePlayerSession {
+  playerName: string;
+  steamId: string | null;
+  startedAt: number;
+  lastSeenAt: number;
 }
 
-export interface ServerSnapshot {
+export interface PlayerSessionRecord extends ActivePlayerSession {
   id: number;
-  server: ServerDetails & {
-    numPlayers: number | null;
-  };
-  queriedAt: number;
-  players: PlayerObservation[];
+  endedAt: number | null;
 }
 
-export interface ServerSnapshotsResponse {
-  server: ServerIdentifier;
-  snapshots: ServerSnapshot[];
+export interface ServerPlayersResponse {
+  server: ServerDetails;
+  lastSeenAt: number;
+  players: ActivePlayerSession[];
+}
+
+export interface ServerSessionsResponse {
+  server: ServerDetails;
+  lastSeenAt: number;
+  sessions: PlayerSessionRecord[];
   limit: number;
 }
 
-export interface LatestSnapshotResponse {
-  server: ServerIdentifier;
-  snapshot: ServerSnapshot;
-}
-
 export interface DatabaseStats {
-  snapshotCount: number;
-  uniquePlayers: number;
   totalSessions: number;
+  uniquePlayers: number;
+  activeSessions: number;
   serverCount: number;
 }
 

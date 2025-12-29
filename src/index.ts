@@ -1,12 +1,12 @@
 import { GameDig } from 'gamedig';
 import { config } from '../config.js';
 
-async function queryServer() {
+async function queryServer(server: { type: string; host: string; port: number }) {
   try {
     const result = await GameDig.query({
-      type: config.SERVER_TYPE,
-      host: config.SERVER_HOST,
-      port: config.SERVER_PORT,
+      type: server.type,
+      host: server.host,
+      port: server.port,
     });
 
     // Match: jq ".name, .players"
@@ -41,15 +41,21 @@ const main = async () => {
     // Then setInterval
     await (async () => {
       console.clear();
-      await queryServer();
+      for (const server of config.servers) {
+        await queryServer(server);
+      }
     })();
 
     setInterval(async () => {
       console.clear();
-      await queryServer();
+      for (const server of config.servers) {
+        await queryServer(server);
+      }
     }, config.INTERVAL * 1000);
   } else {
-    await queryServer();
+    for (const server of config.servers) {
+      await queryServer(server);
+    }
   }
 };
 

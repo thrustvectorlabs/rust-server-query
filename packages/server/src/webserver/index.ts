@@ -2,19 +2,20 @@ import express, { type Request } from 'express';
 import cors from 'cors';
 import { config } from '../config.js';
 import {
-  getLatestSnapshot,
-  getRecentSnapshots,
+  getServerSummary,
+  listActiveSessions,
+  listRecentSessions,
   listServers,
-  listSnapshotQueryMetrics,
+  listApiQueryMetrics,
   getDatabaseStats,
   listPlayerSessionStats,
-  recordSnapshotQueryMetric,
+  recordApiQueryMetric,
   type ServerIdentifier,
 } from '../database/database.js';
 import { logMessage, loggingGroups } from '../logger/logger.js';
 
-const DEFAULT_SNAPSHOT_LIMIT = 10;
-const MAX_SNAPSHOT_LIMIT = 100;
+const DEFAULT_SESSION_LIMIT = 50;
+const MAX_SESSION_LIMIT = 200;
 
 export const startWebServer = () => {
   const app = express();
@@ -41,43 +42,77 @@ export const startWebServer = () => {
     res.json({ servers });
   });
 
-  app.get('/api/servers/:type/:host/:port/snapshots', (req, res) => {
+  app.get('/api/servers/:type/:host/:port/players', (req, res) => {
     const server = parseServerIdentifier(req.params);
     if (!server) {
       res.status(400).json({ error: 'Invalid server identifier.' });
       return;
     }
 
-    const limit = parseLimit(req.query.limit, DEFAULT_SNAPSHOT_LIMIT, MAX_SNAPSHOT_LIMIT);
+    const summary = getServerSummary(server);
+    recordApiVisit(req);
+    const players = listActiveSessions(server);
+    if (!summary) {
+      res.json({
+        server: {
+          type: server.type,
+          host: server.host,
+          port: server.port,
+          name: null,
+          map: null,
+          currentPlayers: null,
+          maxPlayers: null,
+          ping: null,
+        },
+        lastSeenAt: 0,
+        players,
+      });
+      return;
+    }
+
+    res.json({ server: summary.server, lastSeenAt: summary.lastSeenAt, players });
+  });
+
+  app.get('/api/servers/:type/:host/:port/sessions', (req, res) => {
+    const server = parseServerIdentifier(req.params);
+    if (!server) {
+      res.status(400).json({ error: 'Invalid server identifier.' });
+      return;
+    }
+
+    const limit = parseLimit(req.query.limit, DEFAULT_SESSION_LIMIT, MAX_SESSION_LIMIT);
     if (limit instanceof Error) {
       res.status(400).json({ error: limit.message });
       return;
     }
 
-    recordSnapshotVisit(req);
-    const snapshots = getRecentSnapshots(server, limit);
-    res.json({ server, snapshots, limit });
-  });
-
-  app.get('/api/servers/:type/:host/:port/latest', (req, res) => {
-    const server = parseServerIdentifier(req.params);
-    if (!server) {
-      res.status(400).json({ error: 'Invalid server identifier.' });
+    const summary = getServerSummary(server);
+    recordApiVisit(req);
+    const sessions = listRecentSessions(server, limit);
+    if (!summary) {
+      res.json({
+        server: {
+          type: server.type,
+          host: server.host,
+          port: server.port,
+          name: null,
+          map: null,
+          currentPlayers: null,
+          maxPlayers: null,
+          ping: null,
+        },
+        lastSeenAt: 0,
+        sessions,
+        limit,
+      });
       return;
     }
 
-    const snapshot = getLatestSnapshot(server);
-    if (!snapshot) {
-      res.status(404).json({ error: 'No snapshots found for server.', server });
-      return;
-    }
-
-    recordSnapshotVisit(req);
-    res.json({ server, snapshot });
+    res.json({ server: summary.server, lastSeenAt: summary.lastSeenAt, sessions, limit });
   });
 
-  app.get('/api/metrics/snapshot-queries', (_req, res) => {
-    const metrics = listSnapshotQueryMetrics();
+  app.get('/api/metrics/api-queries', (_req, res) => {
+    const metrics = listApiQueryMetrics();
     res.json({ metrics });
   });
 
@@ -129,7 +164,7 @@ function parseLimit(
   return limit;
 }
 
-function recordSnapshotVisit(req: Request): void {
+function recordApiVisit(req: Request): void {
   const ipAddress = extractClientIp(req);
   if (!ipAddress) {
     return;
@@ -138,7 +173,7 @@ function recordSnapshotVisit(req: Request): void {
   const route = `${req.method} ${resolveRoutePattern(req)}`;
   const userAgent = typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'] : null;
 
-  recordSnapshotQueryMetric({
+  recordApiQueryMetric({
     ipAddress,
     route,
     userAgent,
