@@ -172,7 +172,7 @@ export function NotificationTestPage() {
               Permissions API
             </Text>
             <Text size="sm">
-              {navigator.permissions?.query ? 'Available' : 'Unavailable'}
+              {'permissions' in navigator ? 'Available' : 'Unavailable'}
             </Text>
           </Group>
           <Group justify="space-between" align="center">
