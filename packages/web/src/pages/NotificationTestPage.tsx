@@ -24,6 +24,8 @@ export function NotificationTestPage() {
   );
   const [status, setStatus] = useState<NotificationStatus>('default');
   const [lastResult, setLastResult] = useState<string | null>(null);
+  const [permissionState, setPermissionState] = useState<string>('Unknown');
+  const [lastError, setLastError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isSupported) {
@@ -31,6 +33,40 @@ export function NotificationTestPage() {
       return;
     }
     setStatus(Notification.permission);
+  }, [isSupported]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadPermissionState = async () => {
+      if (!isSupported || !navigator.permissions?.query) {
+        setPermissionState('Unavailable');
+        return;
+      }
+
+      try {
+        const permission = await navigator.permissions.query({ name: 'notifications' });
+        if (!mounted) {
+          return;
+        }
+        setPermissionState(permission.state);
+        permission.onchange = () => {
+          if (mounted) {
+            setPermissionState(permission.state);
+          }
+        };
+      } catch (error) {
+        if (mounted) {
+          setPermissionState('Unavailable');
+          setLastError(error instanceof Error ? error.message : 'Unknown error');
+        }
+      }
+    };
+
+    loadPermissionState();
+    return () => {
+      mounted = false;
+    };
   }, [isSupported]);
 
   const sendTestNotification = useCallback(async () => {
@@ -41,11 +77,17 @@ export function NotificationTestPage() {
     }
 
     const send = () => {
-      new Notification('Rust Server Dashboard', {
-        body: 'This is a test browser notification.',
-        tag: 'rust-server-dashboard-test',
-      });
-      setLastResult('Test notification sent.');
+      try {
+        new Notification('Rust Server Dashboard', {
+          body: 'This is a test browser notification.',
+          tag: 'rust-server-dashboard-test',
+        });
+        setLastResult('Test notification sent.');
+        setLastError(null);
+      } catch (error) {
+        setLastError(error instanceof Error ? error.message : 'Unknown error');
+        setLastResult('Notification failed to send.');
+      }
     };
 
     if (Notification.permission === 'granted') {
@@ -62,6 +104,7 @@ export function NotificationTestPage() {
 
     const permission = await Notification.requestPermission();
     setStatus(permission);
+    setLastError(null);
     if (permission === 'granted') {
       send();
     } else if (permission === 'denied') {
@@ -112,6 +155,37 @@ export function NotificationTestPage() {
               </Text>
             ) : null}
           </Group>
+        </Stack>
+      </Card>
+
+      <Card withBorder shadow="sm" padding="md">
+        <Stack gap="sm">
+          <Text fw={600}>Debug info</Text>
+          <Group justify="space-between" align="center">
+            <Text size="sm" c="dimmed">
+              Notification API
+            </Text>
+            <Text size="sm">{isSupported ? 'Available' : 'Unavailable'}</Text>
+          </Group>
+          <Group justify="space-between" align="center">
+            <Text size="sm" c="dimmed">
+              Permissions API
+            </Text>
+            <Text size="sm">
+              {navigator.permissions?.query ? 'Available' : 'Unavailable'}
+            </Text>
+          </Group>
+          <Group justify="space-between" align="center">
+            <Text size="sm" c="dimmed">
+              Permission state
+            </Text>
+            <Text size="sm">{permissionState}</Text>
+          </Group>
+          {lastError ? (
+            <Text size="sm" c="red">
+              Error: {lastError}
+            </Text>
+          ) : null}
         </Stack>
       </Card>
     </Stack>
