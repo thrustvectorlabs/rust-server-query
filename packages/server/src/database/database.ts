@@ -280,6 +280,7 @@ export interface ServerSummary {
 export interface PlayerSessionInput {
   name: string;
   steamId?: string | null;
+  startedAt?: number | null;
 }
 
 export interface ServerQueryInput {
@@ -388,13 +389,14 @@ const recordServerQueryTx = db.transaction((query: ServerQueryInput): void => {
     });
 
     if (updateResult.changes === 0) {
+      const startedAt = sanitizeNumber(player.startedAt) ?? timestamp;
       insertSessionStmt.run({
         serverType: server.type,
         host: server.host,
         port: server.port,
         playerName,
         steamId,
-        startedAt: timestamp,
+        startedAt,
         lastSeenAt: timestamp,
       });
     }

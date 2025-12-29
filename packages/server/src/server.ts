@@ -62,12 +62,14 @@ async function queryServer(server: ServerIdentifier): Promise<boolean> {
       return false;
     }
 
+    const queriedAt = Date.now();
     const players: PlayerSessionInput[] = result.players.map((player) => ({
       name:
         typeof player?.name === 'string' && player.name.trim().length > 0
           ? player.name
           : '(unnamed player)',
       steamId: extractSteamId(player),
+      startedAt: extractStartedAt(player, queriedAt),
     }));
 
     try {
@@ -88,7 +90,7 @@ async function queryServer(server: ServerIdentifier): Promise<boolean> {
           ping: typeof result.ping === 'number' ? result.ping : undefined,
         },
         players,
-        queriedAt: Date.now(),
+        queriedAt,
       });
       const playerCount =
         typeof (result as { numplayers?: unknown }).numplayers === 'number'
@@ -147,6 +149,35 @@ function extractSteamId(player: unknown): string | null {
   }
 
   return null;
+}
+
+function extractStartedAt(player: unknown, queriedAt: number): number | null {
+  if (!player || typeof player !== 'object') {
+    return null;
+  }
+
+  const record = player as Record<string, unknown>;
+  const raw = record.raw;
+  if (raw && typeof raw === 'object') {
+    const rawRecord = raw as Record<string, unknown>;
+    const elapsedSeconds = normalizeElapsedSeconds(rawRecord.time);
+    if (elapsedSeconds !== null) {
+      const startedAt = queriedAt - Math.round(elapsedSeconds * 1000);
+      return startedAt > 0 ? startedAt : null;
+    }
+  }
+
+  return null;
+}
+
+function normalizeElapsedSeconds(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return null;
+  }
+  if (value < 0) {
+    return null;
+  }
+  return value;
 }
 
 (async function run() {
