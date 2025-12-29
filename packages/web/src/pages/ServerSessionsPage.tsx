@@ -214,8 +214,8 @@ function ActivePlayerRow({ player }: { player: ActivePlayerSession }) {
       <Table.Td>{player.playerName}</Table.Td>
       <Table.Td>{player.steamId ?? '—'}</Table.Td>
       <Table.Td>
-        <Tooltip label={formatTime(player.startedAt)}>
-          <Text size="sm">{formatRelativeTime(player.startedAt)}</Text>
+        <Tooltip label={formatRelativeTime(player.startedAt)}>
+          <Text size="sm">{formatTime(player.startedAt)}</Text>
         </Tooltip>
       </Table.Td>
       <Table.Td>{formatDuration(durationSeconds)}</Table.Td>
@@ -232,14 +232,14 @@ function SessionRow({ session }: { session: PlayerSessionRecord }) {
       <Table.Td>{session.playerName}</Table.Td>
       <Table.Td>{session.steamId ?? '—'}</Table.Td>
       <Table.Td>
-        <Tooltip label={formatTime(session.startedAt)}>
-          <Text size="sm">{formatRelativeTime(session.startedAt)}</Text>
+        <Tooltip label={formatRelativeTime(session.startedAt)}>
+          <Text size="sm">{formatTime(session.startedAt)}</Text>
         </Tooltip>
       </Table.Td>
       <Table.Td>
         {session.endedAt ? (
-          <Tooltip label={formatTime(session.endedAt)}>
-            <Text size="sm">{formatRelativeTime(session.endedAt)}</Text>
+          <Tooltip label={formatRelativeTime(session.endedAt)}>
+            <Text size="sm">{formatTime(session.endedAt)}</Text>
           </Tooltip>
         ) : (
           <Badge size="sm" variant="light" color="green">
