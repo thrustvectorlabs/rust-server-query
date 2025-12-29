@@ -86,11 +86,45 @@ export function ServerSessionsPage() {
         </Text>
       </Stack>
 
-      {(playersQuery.isLoading || sessionsQuery.isLoading) && (
+      <Card withBorder padding="md" shadow="sm">
+        <Group justify="space-between" mb="md" align="center">
+          <div>
+            <Title order={4}>Active players</Title>
+            <Text c="dimmed" size="sm">
+              Players currently reported by the latest valid server response.
+            </Text>
+          </div>
+          {playersQuery.isFetching && <Loader size="sm" />}
+        </Group>
+
+        {activePlayers.length === 0 ? (
+          <Text>No active players right now.</Text>
+        ) : (
+          <ScrollArea>
+            <Table striped highlightOnHover withRowBorders={false}>
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>Player</Table.Th>
+                  <Table.Th>Steam ID</Table.Th>
+                  <Table.Th>Connected</Table.Th>
+                  <Table.Th>Session length</Table.Th>
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {activePlayers.map((player) => (
+                  <ActivePlayerRow key={playerKey(player)} player={player} />
+                ))}
+              </Table.Tbody>
+            </Table>
+          </ScrollArea>
+        )}
+      </Card>
+
+      {/* {(playersQuery.isLoading || sessionsQuery.isLoading) && (
         <Flex align="center" justify="center" mih={120}>
           <Loader size="lg" />
         </Flex>
-      )}
+      )} */}
 
       {(playersQuery.isError || sessionsQuery.isError) && (
         <Card withBorder shadow="sm">
@@ -134,47 +168,11 @@ export function ServerSessionsPage() {
         </Card>
       </SimpleGrid>
 
-      <Card withBorder padding="md" shadow="sm">
-        <Group justify="space-between" mb="md" align="center">
-          <div>
-            <Title order={4}>Active players</Title>
-            <Text c="dimmed" size="sm">
-              Players currently reported by the latest valid server response.
-            </Text>
-          </div>
-          {playersQuery.isFetching && <Loader size="sm" />}
-        </Group>
-
-        {activePlayers.length === 0 ? (
-          <Text>No active players right now.</Text>
-        ) : (
-          <ScrollArea>
-            <Table striped highlightOnHover withRowBorders={false}>
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>Player</Table.Th>
-                  <Table.Th>Steam ID</Table.Th>
-                  <Table.Th>Connected</Table.Th>
-                  <Table.Th>Session length</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {activePlayers.map((player) => (
-                  <ActivePlayerRow key={playerKey(player)} player={player} />
-                ))}
-              </Table.Tbody>
-            </Table>
-          </ScrollArea>
-        )}
-      </Card>
 
       <Card withBorder padding="md" shadow="sm">
         <Group justify="space-between" mb="md" align="center">
           <div>
-            <Title order={4}>Recent sessions</Title>
-            <Text c="dimmed" size="sm">
-              Historical sessions, including players who already left.
-            </Text>
+            <Title order={4}>Historical sessions</Title>
           </div>
           {sessionsQuery.isFetching && <Loader size="sm" />}
         </Group>
