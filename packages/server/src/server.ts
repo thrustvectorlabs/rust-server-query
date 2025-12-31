@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 
+import { closeSync, openSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import { GameDig } from 'gamedig';
-import { recordServerQuery } from './database/database.js';
+import { recordServerQuery, DATABASE_PATH } from './database/database.js';
 import type { PlayerSessionInput, ServerIdentifier } from './database/database.js';
 import { startWebServer } from './webserver/index.js';
 import { startSocketServer } from './websocket/socket.js';
@@ -16,9 +18,12 @@ const { config } = (await import(
 )) as { config: RootConfig };
 
 const DEFAULT_POLL_INTERVAL_SECONDS = 20;
+const LOCK_FILENAME = 'server-tracker.lock';
 
 let pollIntervalMs = DEFAULT_POLL_INTERVAL_SECONDS * 1000;
 let runContinuously = true;
+let lockFilePath: string | null = null;
+let lockAcquired = false;
 
 function usage() {
   console.log(`Usage: ${process.argv[1]} [-i seconds]
@@ -46,6 +51,99 @@ for (let i = 2; i < process.argv.length; i++) {
     usage();
   }
 }
+
+function acquireSingleInstanceLock(): void {
+  const lockPath = resolve(dirname(DATABASE_PATH), LOCK_FILENAME);
+  lockFilePath = lockPath;
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const fd = openSync(lockPath, 'wx');
+      lockAcquired = true;
+      const payload = JSON.stringify({
+        pid: process.pid,
+        startedAt: Date.now(),
+        argv: process.argv.slice(2),
+      });
+      writeFileSync(fd, payload);
+      closeSync(fd);
+      return;
+    } catch (err) {
+      if (
+        err &&
+        typeof err === 'object' &&
+        'code' in err &&
+        (err as { code?: string }).code === 'EEXIST' &&
+        attempt === 0
+      ) {
+        const existingPid = readExistingLockPid(lockPath);
+        const isStale = existingPid === null || !isProcessRunning(existingPid);
+        if (isStale) {
+          try {
+            unlinkSync(lockPath);
+            continue;
+          } catch (unlinkError) {
+            console.error('Failed to remove stale lock file.', unlinkError);
+          }
+        }
+      }
+
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`Another instance is already running. ${message}`);
+      process.exit(1);
+    }
+  }
+}
+
+function readExistingLockPid(path: string): number | null {
+  try {
+    const raw = readFileSync(path, 'utf8');
+    const parsed = JSON.parse(raw) as { pid?: number };
+    return typeof parsed.pid === 'number' ? parsed.pid : null;
+  } catch {
+    return null;
+  }
+}
+
+function isProcessRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    if (
+      err &&
+      typeof err === 'object' &&
+      'code' in err &&
+      (err as { code?: string }).code === 'EPERM'
+    ) {
+      return true;
+    }
+    return false;
+  }
+}
+
+function releaseSingleInstanceLock(): void {
+  if (!lockFilePath || !lockAcquired) {
+    return;
+  }
+
+  try {
+    unlinkSync(lockFilePath);
+    lockAcquired = false;
+  } catch (err) {
+    console.error('Failed to remove lock file.', err);
+  }
+}
+
+process.on('exit', releaseSingleInstanceLock);
+process.on('SIGINT', () => {
+  releaseSingleInstanceLock();
+  process.exit(130);
+});
+process.on('SIGTERM', () => {
+  releaseSingleInstanceLock();
+  process.exit(143);
+});
 
 async function queryServer(server: ServerIdentifier): Promise<boolean> {
   try {
@@ -188,6 +286,8 @@ function normalizeElapsedSeconds(value: unknown): number | null {
 }
 
 (async function run() {
+  acquireSingleInstanceLock();
+
   if (runContinuously) {
     logMessage(
       loggingGroups.SERVER,
