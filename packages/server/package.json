@@ -10,6 +10,7 @@
     "build": "tsc",
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
+    "cleanup-duplicates": "tsx src/scripts/cleanup-duplicate-sessions.ts",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
