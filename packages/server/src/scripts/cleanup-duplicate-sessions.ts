@@ -63,11 +63,11 @@ WHERE id = @id
 `);
 
 function chooseKeeper(rows: SessionRow[]): SessionRow {
-  return rows.reduce<SessionRow>((best, row) => {
-    if (!best) {
-      return row;
-    }
+  if (rows.length === 0) {
+    throw new Error('No sessions to choose from.');
+  }
 
+  return rows.slice(1).reduce<SessionRow>((best, row) => {
     const rowActive = row.ended_at === null;
     const bestActive = best.ended_at === null;
     if (rowActive !== bestActive) {
@@ -85,7 +85,7 @@ function chooseKeeper(rows: SessionRow[]): SessionRow {
     }
 
     return row.id < best.id ? row : best;
-  });
+  }, rows[0]);
 }
 
 const cleanupTx = db.transaction(() => {
