@@ -24,6 +24,8 @@ run_in_dir() {
   ( cd "$dir" && "$@" )
 }
 
+cp config.ts config.js
+
 run_in_dir "." yarn install
 run_in_dir "packages/web" yarn install
 run_in_dir "packages/web" yarn build
