@@ -187,41 +187,17 @@ ORDER BY started_at DESC, id DESC
 LIMIT @limit
 `);
 
-const updateActiveSessionStmt = db.prepare<{
-  serverType: string;
-  host: string;
-  port: number;
-  playerName: string;
-  lastSeenAt: number;
-  steamId: string | null;
-}>(`
-UPDATE player_sessions
-SET last_seen_at = @lastSeenAt,
-    steam_id = COALESCE(@steamId, steam_id)
-WHERE server_type = @serverType
-  AND host = @host
-  AND port = @port
-  AND player_name = @playerName
-  AND ended_at IS NULL
-`);
-
-const updateActiveSessionByStartStmt = db.prepare<{
-  serverType: string;
-  host: string;
-  port: number;
-  playerName: string;
+const updateActiveSessionByIdStmt = db.prepare<{
+  id: number;
   startedAt: number;
   lastSeenAt: number;
   steamId: string | null;
 }>(`
 UPDATE player_sessions
-SET last_seen_at = @lastSeenAt,
+SET started_at = @startedAt,
+    last_seen_at = @lastSeenAt,
     steam_id = COALESCE(@steamId, steam_id)
-WHERE server_type = @serverType
-  AND host = @host
-  AND port = @port
-  AND player_name = @playerName
-  AND started_at = @startedAt
+WHERE id = @id
   AND ended_at IS NULL
 `);
 
@@ -362,6 +338,8 @@ export interface PlayerSessionStats {
   firstSeen: number;
 }
 
+const STARTED_AT_TOLERANCE_MS = 5_000;
+
 const recordServerQueryTx = db.transaction((query: ServerQueryInput): void => {
   const timestamp = query.queriedAt ?? Date.now();
   const players = query.players ?? [];
@@ -388,8 +366,27 @@ const recordServerQueryTx = db.transaction((query: ServerQueryInput): void => {
     port: server.port,
   });
 
-  const remotePlayers = new Map<string, number | null>();
   const seenNames = new Set<string>();
+  const keptSessionIds = new Set<number>();
+  const closedSessionIds = new Set<number>();
+  const activeSessionsByName = new Map<string, ActiveSessionRow[]>();
+
+  for (const session of activeSessions) {
+    const sessions = activeSessionsByName.get(session.player_name);
+    if (sessions) {
+      sessions.push(session);
+    } else {
+      activeSessionsByName.set(session.player_name, [session]);
+    }
+  }
+
+  const closeSession = (id: number): void => {
+    if (closedSessionIds.has(id)) {
+      return;
+    }
+    closeSessionStmt.run({ id, endedAt: timestamp });
+    closedSessionIds.add(id);
+  };
 
   for (const player of players) {
     const playerName = normalizePlayerName(player.name);
@@ -397,45 +394,17 @@ const recordServerQueryTx = db.transaction((query: ServerQueryInput): void => {
       continue;
     }
 
-    const startedAt = sanitizeNumber(player.startedAt);
-    const knownStart = remotePlayers.get(playerName);
-    if (knownStart === undefined) {
-      remotePlayers.set(playerName, startedAt ?? null);
-    } else if (startedAt !== null) {
-      if (knownStart === null || startedAt < knownStart) {
-        remotePlayers.set(playerName, startedAt);
-      }
-    }
-
     if (seenNames.has(playerName)) {
       continue;
     }
 
     const steamId = sanitizeText(player.steamId ?? undefined);
+    const startedAt = sanitizeNumber(player.startedAt);
+    const sessions = activeSessionsByName.get(playerName) ?? [];
 
     seenNames.add(playerName);
 
-    const updateResult =
-      startedAt !== null
-        ? updateActiveSessionByStartStmt.run({
-            serverType: server.type,
-            host: server.host,
-            port: server.port,
-            playerName,
-            startedAt,
-            lastSeenAt: timestamp,
-            steamId,
-          })
-        : updateActiveSessionStmt.run({
-            serverType: server.type,
-            host: server.host,
-            port: server.port,
-            playerName,
-            lastSeenAt: timestamp,
-            steamId,
-          });
-
-    if (updateResult.changes === 0) {
+    if (sessions.length === 0) {
       const sessionStart = startedAt ?? timestamp;
       insertSessionStmt.run({
         serverType: server.type,
@@ -446,18 +415,101 @@ const recordServerQueryTx = db.transaction((query: ServerQueryInput): void => {
         startedAt: sessionStart,
         lastSeenAt: timestamp,
       });
-    }
-  }
-
-  for (const session of activeSessions) {
-    const knownStart = remotePlayers.get(session.player_name);
-    if (knownStart === undefined) {
-      closeSessionStmt.run({ id: session.id, endedAt: timestamp });
       continue;
     }
 
-    if (knownStart !== null && session.started_at > knownStart) {
-      closeSessionStmt.run({ id: session.id, endedAt: timestamp });
+    if (startedAt === null) {
+      let bestSession = sessions[0];
+      for (const session of sessions.slice(1)) {
+        if (session.last_seen_at > bestSession.last_seen_at) {
+          bestSession = session;
+        }
+      }
+
+      updateActiveSessionByIdStmt.run({
+        id: bestSession.id,
+        startedAt: bestSession.started_at,
+        lastSeenAt: timestamp,
+        steamId,
+      });
+      keptSessionIds.add(bestSession.id);
+      for (const session of sessions) {
+        if (session.id !== bestSession.id) {
+          closeSession(session.id);
+        }
+      }
+      continue;
+    }
+
+    let closestSession = sessions[0];
+    let closestDiff = Math.abs(closestSession.started_at - startedAt);
+    let earliestSession = sessions[0];
+
+    for (const session of sessions.slice(1)) {
+      const diff = Math.abs(session.started_at - startedAt);
+      if (diff < closestDiff) {
+        closestSession = session;
+        closestDiff = diff;
+      }
+      if (session.started_at < earliestSession.started_at) {
+        earliestSession = session;
+      }
+    }
+
+    if (closestDiff <= STARTED_AT_TOLERANCE_MS) {
+      updateActiveSessionByIdStmt.run({
+        id: closestSession.id,
+        startedAt: Math.min(closestSession.started_at, startedAt),
+        lastSeenAt: timestamp,
+        steamId,
+      });
+      keptSessionIds.add(closestSession.id);
+      for (const session of sessions) {
+        if (session.id !== closestSession.id) {
+          closeSession(session.id);
+        }
+      }
+      continue;
+    }
+
+    if (startedAt < earliestSession.started_at) {
+      updateActiveSessionByIdStmt.run({
+        id: earliestSession.id,
+        startedAt,
+        lastSeenAt: timestamp,
+        steamId,
+      });
+      keptSessionIds.add(earliestSession.id);
+      for (const session of sessions) {
+        if (session.id !== earliestSession.id) {
+          closeSession(session.id);
+        }
+      }
+      continue;
+    }
+
+    for (const session of sessions) {
+      closeSession(session.id);
+    }
+
+    insertSessionStmt.run({
+      serverType: server.type,
+      host: server.host,
+      port: server.port,
+      playerName,
+      steamId,
+      startedAt,
+      lastSeenAt: timestamp,
+    });
+  }
+
+  for (const session of activeSessions) {
+    if (keptSessionIds.has(session.id) || closedSessionIds.has(session.id)) {
+      continue;
+    }
+
+    if (!seenNames.has(session.player_name)) {
+      closeSession(session.id);
     }
   }
 });
