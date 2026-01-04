@@ -13,6 +13,7 @@ import {
   Tooltip,
 } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
+import { useMemo, useState, type KeyboardEvent } from 'react';
 import { useParams } from 'react-router-dom';
 import { apiGet } from '../lib/api.js';
 import type {
@@ -25,6 +26,11 @@ import { formatDuration, formatRelativeTime, formatTime } from '../utils/dates.j
 
 const REFRESH_INTERVAL = 20_000;
 const SESSION_LIMIT = 50;
+
+type SortDirection = 'asc' | 'desc';
+type SortState<T extends string> = { key: T; direction: SortDirection };
+type ActivePlayersSortKey = 'playerName' | 'steamId' | 'startedAt' | 'duration';
+type SessionsSortKey = 'playerName' | 'steamId' | 'startedAt' | 'endedAt' | 'duration';
 
 export function ServerSessionsPage() {
   const { type, host, port } = useParams();
@@ -53,6 +59,36 @@ export function ServerSessionsPage() {
   const lastSeenAt = playersQuery.data?.lastSeenAt ?? sessionsQuery.data?.lastSeenAt ?? null;
   const activePlayers = playersQuery.data?.players ?? [];
   const recentSessions = sessionsQuery.data?.sessions ?? [];
+  const [activePlayersSort, setActivePlayersSort] = useState<SortState<ActivePlayersSortKey> | null>(
+    null,
+  );
+  const [sessionsSort, setSessionsSort] = useState<SortState<SessionsSortKey> | null>(null);
+
+  const sortedActivePlayers = useMemo(() => {
+    if (!activePlayersSort) {
+      return activePlayers;
+    }
+    const now = Date.now();
+    return [...activePlayers].sort((a, b) => {
+      const aValue = getActivePlayerSortValue(a, activePlayersSort.key, now);
+      const bValue = getActivePlayerSortValue(b, activePlayersSort.key, now);
+      const order = compareSortValues(aValue, bValue);
+      return activePlayersSort.direction === 'asc' ? order : -order;
+    });
+  }, [activePlayers, activePlayersSort]);
+
+  const sortedSessions = useMemo(() => {
+    if (!sessionsSort) {
+      return recentSessions;
+    }
+    const now = Date.now();
+    return [...recentSessions].sort((a, b) => {
+      const aValue = getSessionSortValue(a, sessionsSort.key, now);
+      const bValue = getSessionSortValue(b, sessionsSort.key, now);
+      const order = compareSortValues(aValue, bValue);
+      return sessionsSort.direction === 'asc' ? order : -order;
+    });
+  }, [recentSessions, sessionsSort]);
 
   if (!serverPath) {
     return (
@@ -104,14 +140,34 @@ export function ServerSessionsPage() {
             <Table striped highlightOnHover withRowBorders={false}>
               <Table.Thead>
                 <Table.Tr>
-                  <Table.Th>Player</Table.Th>
-                  <Table.Th>Steam ID</Table.Th>
-                  <Table.Th>Connected</Table.Th>
-                  <Table.Th>Session length</Table.Th>
+                  <SortableHeader
+                    label="Player"
+                    sortKey="playerName"
+                    sortState={activePlayersSort}
+                    onChange={setActivePlayersSort}
+                  />
+                  <SortableHeader
+                    label="Steam ID"
+                    sortKey="steamId"
+                    sortState={activePlayersSort}
+                    onChange={setActivePlayersSort}
+                  />
+                  <SortableHeader
+                    label="Connected"
+                    sortKey="startedAt"
+                    sortState={activePlayersSort}
+                    onChange={setActivePlayersSort}
+                  />
+                  <SortableHeader
+                    label="Session length"
+                    sortKey="duration"
+                    sortState={activePlayersSort}
+                    onChange={setActivePlayersSort}
+                  />
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
-                {activePlayers.map((player) => (
+                {sortedActivePlayers.map((player) => (
                   <ActivePlayerRow key={playerKey(player)} player={player} />
                 ))}
               </Table.Tbody>
@@ -184,15 +240,40 @@ export function ServerSessionsPage() {
             <Table striped highlightOnHover withRowBorders={false}>
               <Table.Thead>
                 <Table.Tr>
-                  <Table.Th>Player</Table.Th>
-                  <Table.Th>Steam ID</Table.Th>
-                  <Table.Th>Started</Table.Th>
-                  <Table.Th>Ended</Table.Th>
-                  <Table.Th>Duration</Table.Th>
+                  <SortableHeader
+                    label="Player"
+                    sortKey="playerName"
+                    sortState={sessionsSort}
+                    onChange={setSessionsSort}
+                  />
+                  <SortableHeader
+                    label="Steam ID"
+                    sortKey="steamId"
+                    sortState={sessionsSort}
+                    onChange={setSessionsSort}
+                  />
+                  <SortableHeader
+                    label="Started"
+                    sortKey="startedAt"
+                    sortState={sessionsSort}
+                    onChange={setSessionsSort}
+                  />
+                  <SortableHeader
+                    label="Ended"
+                    sortKey="endedAt"
+                    sortState={sessionsSort}
+                    onChange={setSessionsSort}
+                  />
+                  <SortableHeader
+                    label="Duration"
+                    sortKey="duration"
+                    sortState={sessionsSort}
+                    onChange={setSessionsSort}
+                  />
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
-                {recentSessions.map((session) => (
+                {sortedSessions.map((session) => (
                   <SessionRow key={session.id} session={session} />
                 ))}
               </Table.Tbody>
@@ -218,6 +299,58 @@ function ActivePlayerRow({ player }: { player: ActivePlayerSession }) {
       </Table.Td>
       <Table.Td>{formatDuration(durationSeconds)}</Table.Td>
     </Table.Tr>
+  );
+}
+
+function SortableHeader<T extends string>({
+  label,
+  sortKey,
+  sortState,
+  onChange,
+}: {
+  label: string;
+  sortKey: T;
+  sortState: SortState<T> | null;
+  onChange: (next: SortState<T>) => void;
+}) {
+  const isActive = sortState?.key === sortKey;
+  const ariaSort = isActive
+    ? sortState.direction === 'asc'
+      ? 'ascending'
+      : 'descending'
+    : 'none';
+
+  const handleClick = () => {
+    onChange(getNextSortState(sortState, sortKey));
+  };
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLTableCellElement>) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      onChange(getNextSortState(sortState, sortKey));
+    }
+  };
+
+  return (
+    <Table.Th
+      onClick={handleClick}
+      onKeyDown={handleKeyDown}
+      tabIndex={0}
+      aria-sort={ariaSort}
+      style={{ cursor: 'pointer', userSelect: 'none' }}
+      title={`Sort by ${label}`}
+    >
+      <Flex align="center" gap={6}>
+        <Text size="sm" fw={600} component="span">
+          {label}
+        </Text>
+        {isActive ? (
+          <Text size="xs" c="dimmed" component="span">
+            {sortState.direction === 'asc' ? '^' : 'v'}
+          </Text>
+        ) : null}
+      </Flex>
+    </Table.Th>
   );
 }
 
@@ -248,6 +381,77 @@ function SessionRow({ session }: { session: PlayerSessionRecord }) {
       <Table.Td>{formatDuration(durationSeconds)}</Table.Td>
     </Table.Tr>
   );
+}
+
+function getNextSortState<T extends string>(
+  current: SortState<T> | null,
+  key: T,
+): SortState<T> {
+  if (!current || current.key !== key) {
+    return { key, direction: 'asc' };
+  }
+  return { key, direction: current.direction === 'asc' ? 'desc' : 'asc' };
+}
+
+function compareSortValues(
+  aValue: string | number | null,
+  bValue: string | number | null,
+) {
+  if (aValue === null && bValue === null) {
+    return 0;
+  }
+  if (aValue === null) {
+    return 1;
+  }
+  if (bValue === null) {
+    return -1;
+  }
+  if (typeof aValue === 'number' && typeof bValue === 'number') {
+    return aValue - bValue;
+  }
+  return String(aValue).localeCompare(String(bValue), undefined, { sensitivity: 'base' });
+}
+
+function getActivePlayerSortValue(
+  player: ActivePlayerSession,
+  key: ActivePlayersSortKey,
+  now: number,
+): string | number | null {
+  switch (key) {
+    case 'playerName':
+      return player.playerName;
+    case 'steamId':
+      return player.steamId ?? null;
+    case 'startedAt':
+      return player.startedAt;
+    case 'duration':
+      return Math.max(0, now - player.startedAt);
+    default:
+      return null;
+  }
+}
+
+function getSessionSortValue(
+  session: PlayerSessionRecord,
+  key: SessionsSortKey,
+  now: number,
+): string | number | null {
+  switch (key) {
+    case 'playerName':
+      return session.playerName;
+    case 'steamId':
+      return session.steamId ?? null;
+    case 'startedAt':
+      return session.startedAt;
+    case 'endedAt':
+      return session.endedAt ?? null;
+    case 'duration': {
+      const endTime = session.endedAt ?? now;
+      return Math.max(0, endTime - session.startedAt);
+    }
+    default:
+      return null;
+  }
 }
 
 function resolveError(error: unknown): string {
