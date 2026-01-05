@@ -7,9 +7,13 @@
     "node": ">=24.9.0"
   },
   "scripts": {
-    "dev:web": "yarn workspace @rust-server-query/web dev",
-    "build:web": "yarn workspace @rust-server-query/web build",
-    "preview:web": "yarn workspace @rust-server-query/web preview"
+    "web:dev": "yarn workspace @rust-server-query/web dev",
+    "web:build": "yarn workspace @rust-server-query/web build",
+    "web:preview": "yarn workspace @rust-server-query/web preview",
+    "server:dev": "yarn workspace @rust-server-query/server dev",
+    "server:build": "yarn workspace @rust-server-query/server build",
+    "server:start": "yarn workspace @rust-server-query/server start",
+    "build": "yarn web:build && yarn server:build"
   },
   "workspaces": [
     "packages/server",
