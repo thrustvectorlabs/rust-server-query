@@ -58,3 +58,4 @@ API:
 Web UI:
 
 - `/internal/database-stats` – React page that visualizes the internal database stats and player sessions (calls the API routes above).
+- `/internal/notifications` - Notification test page
