@@ -1,9 +1,7 @@
 import {
   Badge,
   Card,
-  Flex,
   Group,
-  Loader,
   ScrollArea,
   SimpleGrid,
   Stack,
@@ -55,11 +53,7 @@ export function DatabaseStatsPage() {
         </div>
       </Group>
 
-      {isLoading ? (
-        <Flex align="center" justify="center" mih={200}>
-          <Loader size="lg" />
-        </Flex>
-      ) : isError ? (
+      {isLoading ? null : isError ? (
         <Card withBorder shadow="sm">
           <Text c="red" fw={600}>
             Failed to load database stats: {error instanceof Error ? error.message : 'Unknown error'}
@@ -183,7 +177,6 @@ function PlayerSessionsTable({ players, loading, error }: PlayerSessionsTablePro
             Session counts are calculated per player name across all tracked servers.
           </Text>
         </div>
-        {loading && <Loader size="sm" />}
       </Group>
 
       {error ? (

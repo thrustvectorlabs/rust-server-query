@@ -1,9 +1,9 @@
 import {
+  ActionIcon,
   Badge,
   Card,
   Flex,
   Group,
-  Loader,
   ScrollArea,
   SimpleGrid,
   Stack,
@@ -12,10 +12,16 @@ import {
   Title,
   Tooltip,
 } from '@mantine/core';
+import { IconBell, IconBellOff } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
-import { useMemo, useState, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useParams } from 'react-router-dom';
 import { apiGet } from '../lib/api.js';
+import {
+  getPlayerIdentityKey,
+  usePlayerNotifications,
+  type PlayerIdentity,
+} from '../lib/playerNotifications.js';
 import type {
   ActivePlayerSession,
   PlayerSessionRecord,
@@ -63,6 +69,8 @@ export function ServerSessionsPage() {
     null,
   );
   const [sessionsSort, setSessionsSort] = useState<SortState<SessionsSortKey> | null>(null);
+  const { isSubscribed, toggleSubscription, updateLastSeen } = usePlayerNotifications();
+  const previousActivePlayersRef = useRef<Map<string, ActivePlayerSession> | null>(null);
 
   const sortedActivePlayers = useMemo(() => {
     if (!activePlayersSort) {
@@ -89,6 +97,80 @@ export function ServerSessionsPage() {
       return sessionsSort.direction === 'asc' ? order : -order;
     });
   }, [recentSessions, sessionsSort]);
+
+  useEffect(() => {
+    const updates = [
+      ...activePlayers.map((player) => ({
+        playerName: player.playerName,
+        steamId: player.steamId,
+        lastSeenAt: player.lastSeenAt ?? player.startedAt,
+        status: 'active' as const,
+      })),
+      ...recentSessions.map((session) => ({
+        playerName: session.playerName,
+        steamId: session.steamId,
+        lastSeenAt: session.endedAt ?? session.lastSeenAt ?? session.startedAt,
+        status: session.endedAt ? ('offline' as const) : ('active' as const),
+      })),
+    ];
+    updateLastSeen(updates);
+  }, [activePlayers, recentSessions, updateLastSeen]);
+
+  useEffect(() => {
+    const currentMap = new Map(
+      activePlayers.map((player) => [getPlayerIdentityKey(player), player]),
+    );
+    if (!previousActivePlayersRef.current) {
+      previousActivePlayersRef.current = currentMap;
+      return;
+    }
+    const previousMap = previousActivePlayersRef.current;
+
+    const newlyOnline = activePlayers.filter((player) => {
+      const key = getPlayerIdentityKey(player);
+      return !previousMap.has(key) && isSubscribed(player);
+    });
+
+    const wentOffline: ActivePlayerSession[] = [];
+    previousMap.forEach((player, key) => {
+      if (!currentMap.has(key) && isSubscribed(player)) {
+        wentOffline.push(player);
+      }
+    });
+
+    if (newlyOnline.length > 0 || wentOffline.length > 0) {
+      const serverLabel = server?.name ?? `${host}:${port}`;
+      if (typeof window !== 'undefined' && 'Notification' in window) {
+        if (Notification.permission === 'granted') {
+          newlyOnline.forEach((player) => {
+            new Notification('Player online', {
+              body: `${player.playerName} is online on ${serverLabel}.`,
+              tag: `player-online-${getPlayerIdentityKey(player)}`,
+            });
+          });
+          wentOffline.forEach((player) => {
+            new Notification('Player offline', {
+              body: `${player.playerName} went offline on ${serverLabel}.`,
+              tag: `player-offline-${getPlayerIdentityKey(player)}`,
+            });
+          });
+        }
+      }
+    }
+
+    if (wentOffline.length > 0) {
+      updateLastSeen(
+        wentOffline.map((player) => ({
+          playerName: player.playerName,
+          steamId: player.steamId,
+          lastSeenAt: Date.now(),
+          status: 'offline' as const,
+        })),
+      );
+    }
+
+    previousActivePlayersRef.current = currentMap;
+  }, [activePlayers, host, isSubscribed, port, server?.name, updateLastSeen]);
 
   if (!serverPath) {
     return (
@@ -130,7 +212,6 @@ export function ServerSessionsPage() {
               Players currently reported by the latest valid server response.
             </Text>
           </div>
-          {playersQuery.isFetching && <Loader size="sm" />}
         </Group>
 
         {activePlayers.length === 0 ? (
@@ -140,6 +221,7 @@ export function ServerSessionsPage() {
             <Table striped highlightOnHover withRowBorders={false}>
               <Table.Thead>
                 <Table.Tr>
+                  <Table.Th>Notify</Table.Th>
                   <SortableHeader
                     label="Player"
                     sortKey="playerName"
@@ -168,19 +250,18 @@ export function ServerSessionsPage() {
               </Table.Thead>
               <Table.Tbody>
                 {sortedActivePlayers.map((player) => (
-                  <ActivePlayerRow key={playerKey(player)} player={player} />
+                  <ActivePlayerRow
+                    key={getPlayerIdentityKey(player)}
+                    player={player}
+                    isSubscribed={isSubscribed}
+                    onToggle={toggleSubscription}
+                  />
                 ))}
               </Table.Tbody>
             </Table>
           </ScrollArea>
         )}
       </Card>
-
-      {/* {(playersQuery.isLoading || sessionsQuery.isLoading) && (
-        <Flex align="center" justify="center" mih={120}>
-          <Loader size="lg" />
-        </Flex>
-      )} */}
 
       {(playersQuery.isError || sessionsQuery.isError) && (
         <Card withBorder shadow="sm">
@@ -230,7 +311,6 @@ export function ServerSessionsPage() {
           <div>
             <Title order={4}>Historical sessions</Title>
           </div>
-          {sessionsQuery.isFetching && <Loader size="sm" />}
         </Group>
 
         {recentSessions.length === 0 ? (
@@ -240,6 +320,7 @@ export function ServerSessionsPage() {
             <Table striped highlightOnHover withRowBorders={false}>
               <Table.Thead>
                 <Table.Tr>
+                  <Table.Th>Notify</Table.Th>
                   <SortableHeader
                     label="Player"
                     sortKey="playerName"
@@ -274,7 +355,12 @@ export function ServerSessionsPage() {
               </Table.Thead>
               <Table.Tbody>
                 {sortedSessions.map((session) => (
-                  <SessionRow key={session.id} session={session} />
+                  <SessionRow
+                    key={session.id}
+                    session={session}
+                    isSubscribed={isSubscribed}
+                    onToggle={toggleSubscription}
+                  />
                 ))}
               </Table.Tbody>
             </Table>
@@ -285,11 +371,42 @@ export function ServerSessionsPage() {
   );
 }
 
-function ActivePlayerRow({ player }: { player: ActivePlayerSession }) {
+function ActivePlayerRow({
+  player,
+  isSubscribed,
+  onToggle,
+}: {
+  player: ActivePlayerSession;
+  isSubscribed: (identity: PlayerIdentity) => boolean;
+  onToggle: (
+    identity: PlayerIdentity,
+    initialStatus?: 'active' | 'offline' | 'unknown',
+    lastSeenAt?: number | null,
+  ) => void;
+}) {
   const durationSeconds = Math.max(0, Math.floor((Date.now() - player.startedAt) / 1000));
+  const subscribed = isSubscribed(player);
+  const handleToggle = () => {
+    if (!subscribed) {
+      requestNotificationPermission();
+    }
+    onToggle(player, 'active', player.lastSeenAt ?? player.startedAt);
+  };
 
   return (
     <Table.Tr>
+      <Table.Td>
+        <Tooltip label={subscribed ? 'Stop notifications' : 'Notify when online'}>
+          <ActionIcon
+            variant={subscribed ? 'light' : 'subtle'}
+            color={subscribed ? 'blue' : 'gray'}
+            onClick={handleToggle}
+            aria-label={subscribed ? 'Disable notifications' : 'Enable notifications'}
+          >
+            {subscribed ? <IconBellOff size={16} /> : <IconBell size={16} />}
+          </ActionIcon>
+        </Tooltip>
+      </Table.Td>
       <Table.Td>{player.playerName}</Table.Td>
       <Table.Td>{player.steamId ?? '—'}</Table.Td>
       <Table.Td>
@@ -354,12 +471,45 @@ function SortableHeader<T extends string>({
   );
 }
 
-function SessionRow({ session }: { session: PlayerSessionRecord }) {
+function SessionRow({
+  session,
+  isSubscribed,
+  onToggle,
+}: {
+  session: PlayerSessionRecord;
+  isSubscribed: (identity: PlayerIdentity) => boolean;
+  onToggle: (
+    identity: PlayerIdentity,
+    initialStatus?: 'active' | 'offline' | 'unknown',
+    lastSeenAt?: number | null,
+  ) => void;
+}) {
   const endTime = session.endedAt ?? Date.now();
   const durationSeconds = Math.max(0, Math.floor((endTime - session.startedAt) / 1000));
+  const subscribed = isSubscribed(session);
+  const lastSeenAt = session.endedAt ?? session.lastSeenAt ?? session.startedAt;
+  const status = session.endedAt ? 'offline' : 'active';
+  const handleToggle = () => {
+    if (!subscribed) {
+      requestNotificationPermission();
+    }
+    onToggle(session, status, lastSeenAt);
+  };
 
   return (
     <Table.Tr>
+      <Table.Td>
+        <Tooltip label={subscribed ? 'Stop notifications' : 'Notify when online'}>
+          <ActionIcon
+            variant={subscribed ? 'light' : 'subtle'}
+            color={subscribed ? 'blue' : 'gray'}
+            onClick={handleToggle}
+            aria-label={subscribed ? 'Disable notifications' : 'Enable notifications'}
+          >
+            {subscribed ? <IconBellOff size={16} /> : <IconBell size={16} />}
+          </ActionIcon>
+        </Tooltip>
+      </Table.Td>
       <Table.Td>{session.playerName}</Table.Td>
       <Table.Td>{session.steamId ?? '—'}</Table.Td>
       <Table.Td>
@@ -471,6 +621,13 @@ function formatCount(value: number | null | undefined): string {
   return '—';
 }
 
-function playerKey(player: ActivePlayerSession): string {
-  return player.playerName;
+function requestNotificationPermission() {
+  if (typeof window === 'undefined' || !('Notification' in window)) {
+    return;
+  }
+  if (Notification.permission === 'default') {
+    Notification.requestPermission().catch(() => {
+      // Ignore permission errors.
+    });
+  }
 }

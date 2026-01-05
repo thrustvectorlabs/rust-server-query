@@ -2,9 +2,7 @@ import {
   Anchor,
   Badge,
   Card,
-  Flex,
   Group,
-  Loader,
   SimpleGrid,
   Stack,
   Table,
@@ -41,11 +39,7 @@ export function DashboardPage() {
         </div>
       </Group>
 
-      {isLoading ? (
-        <Flex align="center" justify="center" mih={200}>
-          <Loader size="lg" />
-        </Flex>
-      ) : isError ? (
+      {isLoading ? null : isError ? (
         <Card withBorder shadow="sm">
           <Text c="red" fw={600}>
             Failed to load servers: {error instanceof Error ? error.message : 'Unknown error'}
