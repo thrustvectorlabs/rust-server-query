@@ -17,11 +17,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useParams } from 'react-router-dom';
 import { apiGet } from '../lib/api.js';
-import {
-  getPlayerIdentityKey,
-  usePlayerNotifications,
-  type PlayerIdentity,
-} from '../lib/playerNotifications.js';
+import { getPlayerIdentityKey, usePlayerNotifications, type PlayerIdentity } from '../lib/playerNotifications.js';
 import type {
   ActivePlayerSession,
   PlayerSessionRecord,
@@ -32,6 +28,7 @@ import { formatDuration, formatRelativeTime, formatTime } from '../utils/dates.j
 
 const REFRESH_INTERVAL = 20_000;
 const SESSION_LIMIT = 50;
+const NOTIFY_COLUMN_WIDTH = 56;
 
 type SortDirection = 'asc' | 'desc';
 type SortState<T extends string> = { key: T; direction: SortDirection };
@@ -45,18 +42,14 @@ export function ServerSessionsPage() {
 
   const playersQuery = useQuery({
     queryKey: ['server-players', type, host, port],
-    queryFn: () =>
-      apiGet<ServerPlayersResponse>(`/servers/${serverPath}/players`),
+    queryFn: () => apiGet<ServerPlayersResponse>(`/servers/${serverPath}/players`),
     enabled: Boolean(serverPath),
     refetchInterval: REFRESH_INTERVAL,
   });
 
   const sessionsQuery = useQuery({
     queryKey: ['server-sessions', type, host, port, SESSION_LIMIT],
-    queryFn: () =>
-      apiGet<ServerSessionsResponse>(
-        `/servers/${serverPath}/sessions?limit=${SESSION_LIMIT}`,
-      ),
+    queryFn: () => apiGet<ServerSessionsResponse>(`/servers/${serverPath}/sessions?limit=${SESSION_LIMIT}`),
     enabled: Boolean(serverPath),
     refetchInterval: REFRESH_INTERVAL,
   });
@@ -65,9 +58,7 @@ export function ServerSessionsPage() {
   const lastSeenAt = playersQuery.data?.lastSeenAt ?? sessionsQuery.data?.lastSeenAt ?? null;
   const activePlayers = playersQuery.data?.players ?? [];
   const recentSessions = sessionsQuery.data?.sessions ?? [];
-  const [activePlayersSort, setActivePlayersSort] = useState<SortState<ActivePlayersSortKey> | null>(
-    null,
-  );
+  const [activePlayersSort, setActivePlayersSort] = useState<SortState<ActivePlayersSortKey> | null>(null);
   const [sessionsSort, setSessionsSort] = useState<SortState<SessionsSortKey> | null>(null);
   const { isSubscribed, toggleSubscription, updateLastSeen } = usePlayerNotifications();
   const previousActivePlayersRef = useRef<Map<string, ActivePlayerSession> | null>(null);
@@ -117,9 +108,7 @@ export function ServerSessionsPage() {
   }, [activePlayers, recentSessions, updateLastSeen]);
 
   useEffect(() => {
-    const currentMap = new Map(
-      activePlayers.map((player) => [getPlayerIdentityKey(player), player]),
-    );
+    const currentMap = new Map(activePlayers.map((player) => [getPlayerIdentityKey(player), player]));
     if (!previousActivePlayersRef.current) {
       previousActivePlayersRef.current = currentMap;
       return;
@@ -221,7 +210,9 @@ export function ServerSessionsPage() {
             <Table striped highlightOnHover withRowBorders={false}>
               <Table.Thead>
                 <Table.Tr>
-                  <Table.Th>Notify</Table.Th>
+                  <Table.Th style={{ width: NOTIFY_COLUMN_WIDTH }} ta="center" p="xs">
+                    Notify
+                  </Table.Th>
                   <SortableHeader
                     label="Player"
                     sortKey="playerName"
@@ -295,16 +286,13 @@ export function ServerSessionsPage() {
             <Text c="dimmed" size="sm">
               Ping
             </Text>
-            <Title order={3}>
-              {server?.ping !== null && server?.ping !== undefined ? `${server.ping} ms` : '—'}
-            </Title>
+            <Title order={3}>{server?.ping !== null && server?.ping !== undefined ? `${server.ping} ms` : '—'}</Title>
             <Text size="sm" c="dimmed">
               Recent session records: {recentSessions.length} (showing last {SESSION_LIMIT})
             </Text>
           </Stack>
         </Card>
       </SimpleGrid>
-
 
       <Card withBorder padding="md" shadow="sm">
         <Group justify="space-between" mb="md" align="center">
@@ -320,7 +308,9 @@ export function ServerSessionsPage() {
             <Table striped highlightOnHover withRowBorders={false}>
               <Table.Thead>
                 <Table.Tr>
-                  <Table.Th>Notify</Table.Th>
+                  <Table.Th style={{ width: NOTIFY_COLUMN_WIDTH }} ta="center" p="xs">
+                    Notify
+                  </Table.Th>
                   <SortableHeader
                     label="Player"
                     sortKey="playerName"
@@ -339,12 +329,7 @@ export function ServerSessionsPage() {
                     sortState={sessionsSort}
                     onChange={setSessionsSort}
                   />
-                  <SortableHeader
-                    label="Ended"
-                    sortKey="endedAt"
-                    sortState={sessionsSort}
-                    onChange={setSessionsSort}
-                  />
+                  <SortableHeader label="Ended" sortKey="endedAt" sortState={sessionsSort} onChange={setSessionsSort} />
                   <SortableHeader
                     label="Duration"
                     sortKey="duration"
@@ -395,7 +380,7 @@ function ActivePlayerRow({
 
   return (
     <Table.Tr>
-      <Table.Td>
+      <Table.Td style={{ width: NOTIFY_COLUMN_WIDTH }} ta="center" p="xs">
         <Tooltip label={subscribed ? 'Stop notifications' : 'Notify when online'}>
           <ActionIcon
             variant={subscribed ? 'light' : 'subtle'}
@@ -431,11 +416,7 @@ function SortableHeader<T extends string>({
   onChange: (next: SortState<T>) => void;
 }) {
   const isActive = sortState?.key === sortKey;
-  const ariaSort = isActive
-    ? sortState.direction === 'asc'
-      ? 'ascending'
-      : 'descending'
-    : 'none';
+  const ariaSort = isActive ? (sortState.direction === 'asc' ? 'ascending' : 'descending') : 'none';
 
   const handleClick = () => {
     onChange(getNextSortState(sortState, sortKey));
@@ -498,7 +479,7 @@ function SessionRow({
 
   return (
     <Table.Tr>
-      <Table.Td>
+      <Table.Td style={{ width: NOTIFY_COLUMN_WIDTH }} ta="center" p="xs">
         <Tooltip label={subscribed ? 'Stop notifications' : 'Notify when online'}>
           <ActionIcon
             variant={subscribed ? 'light' : 'subtle'}
@@ -533,20 +514,14 @@ function SessionRow({
   );
 }
 
-function getNextSortState<T extends string>(
-  current: SortState<T> | null,
-  key: T,
-): SortState<T> {
+function getNextSortState<T extends string>(current: SortState<T> | null, key: T): SortState<T> {
   if (!current || current.key !== key) {
     return { key, direction: 'asc' };
   }
   return { key, direction: current.direction === 'asc' ? 'desc' : 'asc' };
 }
 
-function compareSortValues(
-  aValue: string | number | null,
-  bValue: string | number | null,
-) {
+function compareSortValues(aValue: string | number | null, bValue: string | number | null) {
   if (aValue === null && bValue === null) {
     return 0;
   }
@@ -581,11 +556,7 @@ function getActivePlayerSortValue(
   }
 }
 
-function getSessionSortValue(
-  session: PlayerSessionRecord,
-  key: SessionsSortKey,
-  now: number,
-): string | number | null {
+function getSessionSortValue(session: PlayerSessionRecord, key: SessionsSortKey, now: number): string | number | null {
   switch (key) {
     case 'playerName':
       return session.playerName;
