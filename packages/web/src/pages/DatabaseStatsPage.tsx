@@ -1,26 +1,11 @@
-import {
-  Badge,
-  Card,
-  Group,
-  ScrollArea,
-  SimpleGrid,
-  Stack,
-  Table,
-  Text,
-  Title,
-  Tooltip,
-} from '@mantine/core';
+import { Badge, Card, Group, ScrollArea, SimpleGrid, Stack, Table, Text, Title, Tooltip } from '@mantine/core';
 import { useMemo, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { apiGet } from '../lib/api.js';
-import type {
-  DatabaseStatsResponse,
-  PlayerSessionStat,
-  PlayerSessionsResponse,
-} from '../types/api.js';
+import type { DatabaseStatsResponse, PlayerSessionStat, PlayerSessionsResponse } from '../types/api.js';
 import { formatRelativeTime, formatTime } from '../utils/dates.js';
 
-const REFRESH_INTERVAL = 60_000;
+const REFRESH_INTERVAL = 10_000;
 
 export function DatabaseStatsPage() {
   const { data, isLoading, isError, error } = useQuery({
@@ -44,11 +29,13 @@ export function DatabaseStatsPage() {
         <div>
           <Group gap="xs" mb={4}>
             <Title order={2}>Database Statistics</Title>
-            <Badge color="gray" variant="light">Internal</Badge>
+            <Badge color="gray" variant="light">
+              Internal
+            </Badge>
           </Group>
           <Text c="dimmed" size="sm">
-            Aggregate metrics derived from stored player sessions. Sessions start the first time a
-            player name appears on a server and end once they disappear from a valid query response.
+            Aggregate metrics derived from stored player sessions. Sessions start the first time a player name appears
+            on a server and end once they disappear from a valid query response.
           </Text>
         </div>
       </Group>
@@ -246,19 +233,10 @@ type SortableHeaderProps = {
   renderIndicator: (column: 'player' | 'sessions' | 'firstSeen') => ReactNode;
 };
 
-function SortableHeader({
-  label,
-  column,
-  sortBy,
-  sortDirection,
-  onSort,
-  renderIndicator,
-}: SortableHeaderProps) {
+function SortableHeader({ label, column, sortBy, sortDirection, onSort, renderIndicator }: SortableHeaderProps) {
   return (
     <Table.Th
-      aria-sort={
-        sortBy === column ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'
-      }
+      aria-sort={sortBy === column ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
       onClick={() => onSort(column)}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {
