@@ -10,8 +10,10 @@ import {
   Title,
   Tooltip,
 } from '@mantine/core';
+import { notifications } from '@mantine/notifications';
 import { IconBellOff } from '@tabler/icons-react';
 import { useMemo } from 'react';
+import { playNotificationSound } from '../lib/notificationSound.js';
 import { usePlayerNotifications } from '../lib/playerNotifications.js';
 import { formatRelativeTime, formatTime } from '../utils/dates.js';
 
@@ -42,6 +44,46 @@ export function PlayerNotificationsPage() {
           Unsubscribe from all
         </Button>
       </Group>
+
+      <Card withBorder shadow="sm" padding="md">
+        <Group justify="space-between" align="center">
+          <div>
+            <Title order={4}>Test sounds</Title>
+            <Text c="dimmed" size="sm">
+              Preview the elevator-style notification dings.
+            </Text>
+          </div>
+          <Group>
+            <Button
+              variant="light"
+              onClick={() => {
+                notifications.show({
+                  title: 'Player online',
+                  message: 'Test: player is online.',
+                  color: 'green',
+                });
+                playNotificationSound('online');
+              }}
+            >
+              Test online
+            </Button>
+            <Button
+              variant="light"
+              color="gray"
+              onClick={() => {
+                notifications.show({
+                  title: 'Player offline',
+                  message: 'Test: player went offline.',
+                  color: 'gray',
+                });
+                playNotificationSound('offline');
+              }}
+            >
+              Test offline
+            </Button>
+          </Group>
+        </Group>
+      </Card>
 
       {subscriptions.length === 0 ? (
         <Card withBorder shadow="sm">

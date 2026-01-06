@@ -12,11 +12,13 @@ import {
   Title,
   Tooltip,
 } from '@mantine/core';
+import { notifications } from '@mantine/notifications';
 import { IconBell, IconBellOff } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useParams } from 'react-router-dom';
 import { apiGet } from '../lib/api.js';
+import { playNotificationSound } from '../lib/notificationSound.js';
 import { getPlayerIdentityKey, usePlayerNotifications, type PlayerIdentity } from '../lib/playerNotifications.js';
 import type {
   ActivePlayerSession,
@@ -129,22 +131,24 @@ export function ServerSessionsPage() {
 
     if (newlyOnline.length > 0 || wentOffline.length > 0) {
       const serverLabel = server?.name ?? `${host}:${port}`;
-      if (typeof window !== 'undefined' && 'Notification' in window) {
-        if (Notification.permission === 'granted') {
-          newlyOnline.forEach((player) => {
-            new Notification('Player online', {
-              body: `${player.playerName} is online on ${serverLabel}.`,
-              tag: `player-online-${getPlayerIdentityKey(player)}`,
-            });
-          });
-          wentOffline.forEach((player) => {
-            new Notification('Player offline', {
-              body: `${player.playerName} went offline on ${serverLabel}.`,
-              tag: `player-offline-${getPlayerIdentityKey(player)}`,
-            });
-          });
-        }
-      }
+      newlyOnline.forEach((player) => {
+        notifications.show({
+          title: 'Player online',
+          message: `${player.playerName} is online on ${serverLabel}.`,
+          color: 'green',
+          icon: <IconBell size={16} />,
+        });
+        playNotificationSound('online');
+      });
+      wentOffline.forEach((player) => {
+        notifications.show({
+          title: 'Player offline',
+          message: `${player.playerName} went offline on ${serverLabel}.`,
+          color: 'gray',
+          icon: <IconBellOff size={16} />,
+        });
+        playNotificationSound('offline');
+      });
     }
 
     if (wentOffline.length > 0) {
@@ -372,9 +376,6 @@ function ActivePlayerRow({
   const durationSeconds = Math.max(0, Math.floor((Date.now() - player.startedAt) / 1000));
   const subscribed = isSubscribed(player);
   const handleToggle = () => {
-    if (!subscribed) {
-      requestNotificationPermission();
-    }
     onToggle(player, 'active', player.lastSeenAt ?? player.startedAt);
   };
 
@@ -471,9 +472,6 @@ function SessionRow({
   const lastSeenAt = session.endedAt ?? session.lastSeenAt ?? session.startedAt;
   const status = session.endedAt ? 'offline' : 'active';
   const handleToggle = () => {
-    if (!subscribed) {
-      requestNotificationPermission();
-    }
     onToggle(session, status, lastSeenAt);
   };
 
@@ -590,15 +588,4 @@ function formatCount(value: number | null | undefined): string {
     return value.toString();
   }
   return '—';
-}
-
-function requestNotificationPermission() {
-  if (typeof window === 'undefined' || !('Notification' in window)) {
-    return;
-  }
-  if (Notification.permission === 'default') {
-    Notification.requestPermission().catch(() => {
-      // Ignore permission errors.
-    });
-  }
 }
