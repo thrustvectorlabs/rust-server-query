@@ -1,24 +1,11 @@
-import {
-  Anchor,
-  Badge,
-  Card,
-  Flex,
-  Group,
-  Loader,
-  SimpleGrid,
-  Stack,
-  Table,
-  Text,
-  Title,
-  Tooltip,
-} from '@mantine/core';
+import { Anchor, Badge, Card, Group, SimpleGrid, Stack, Table, Text, Title, Tooltip } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { apiGet } from '../lib/api.js';
 import type { ServersResponse, ServerSummary } from '../types/api.js';
 import { formatRelativeTime, formatTime } from '../utils/dates.js';
 
-const REFRESH_INTERVAL = 30_000;
+const REFRESH_INTERVAL = 10_000;
 
 export function DashboardPage() {
   const { data, isLoading, isError, error } = useQuery({
@@ -41,11 +28,7 @@ export function DashboardPage() {
         </div>
       </Group>
 
-      {isLoading ? (
-        <Flex align="center" justify="center" mih={200}>
-          <Loader size="lg" />
-        </Flex>
-      ) : isError ? (
+      {isLoading ? null : isError ? (
         <Card withBorder shadow="sm">
           <Text c="red" fw={600}>
             Failed to load servers: {error instanceof Error ? error.message : 'Unknown error'}
@@ -105,9 +88,7 @@ function ServerRow({ summary }: { summary: ServerSummary }) {
           {formatCount(server.currentPlayers)} / {formatCount(server.maxPlayers)}
         </Text>
       </Table.Td>
-      <Table.Td>
-        {server.ping !== null && server.ping !== undefined ? `${server.ping} ms` : '—'}
-      </Table.Td>
+      <Table.Td>{server.ping !== null && server.ping !== undefined ? `${server.ping} ms` : '—'}</Table.Td>
       <Table.Td>{server.map ?? 'Unknown'}</Table.Td>
       <Table.Td>
         <Tooltip label={formatTime(lastSeenAt)}>

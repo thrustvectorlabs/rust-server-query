@@ -4,6 +4,7 @@ import { NavLink } from 'react-router-dom';
 
 const links = [
   { to: '/', label: 'Overview' },
+  { to: '/notifications', label: 'Notifications' },
 ];
 
 export function Navigation() {

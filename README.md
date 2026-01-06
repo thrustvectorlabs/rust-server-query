@@ -44,7 +44,11 @@ The React dashboard lives in `packages/web` and is built with Vite, React, Manti
 - Click a server name on the overview page to open the detail view with live player lists and charts.
 - Build for production: `yarn build:web`
 - Preview the production bundle: `yarn preview:web`
-- Configure the API target by copying `packages/web/.env.example` to `packages/web/.env` (or export `VITE_API_URL` in the environment) and setting the URL of the deployed server before running `yarn build:web`.
+- Configure the API target by copying `packages/web/.env.example` to `packages/web/.env` or setting `VITE_API_URL` when building the SPA. For example:
+
+```
+VITE_API_URL="https://www.deltaserve.nl/api" yarn build:web
+```
 
 # Internal URLs
 
