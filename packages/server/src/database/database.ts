@@ -55,6 +55,7 @@ type ApiQueryMetricRow = {
   ip_address: string;
   route: string;
   user_agent: string | null;
+  first_queried_at: number;
   last_queried_at: number;
   query_count: number;
 };
@@ -111,6 +112,7 @@ CREATE TABLE IF NOT EXISTS api_query_metrics (
   ip_address TEXT NOT NULL,
   route TEXT NOT NULL,
   user_agent TEXT,
+  first_queried_at INTEGER,
   last_queried_at INTEGER NOT NULL,
   query_count INTEGER NOT NULL DEFAULT 1,
   PRIMARY KEY (ip_address, route)
@@ -123,6 +125,19 @@ CREATE INDEX IF NOT EXISTS idx_player_sessions_name
 CREATE INDEX IF NOT EXISTS idx_api_query_metrics_last
   ON api_query_metrics(last_queried_at);
 `);
+
+const apiQueryMetricColumns = db.prepare(`PRAGMA table_info(api_query_metrics)`).all() as Array<{
+  name: string;
+}>;
+const hasFirstQueriedAt = apiQueryMetricColumns.some((column) => column.name === 'first_queried_at');
+if (!hasFirstQueriedAt) {
+  db.exec(`
+    ALTER TABLE api_query_metrics ADD COLUMN first_queried_at INTEGER;
+    UPDATE api_query_metrics
+    SET first_queried_at = last_queried_at
+    WHERE first_queried_at IS NULL;
+  `);
+}
 
 const closeOpenSessionsStmt = db.prepare<{ timestamp: number }>(`
 UPDATE player_sessions
@@ -239,10 +254,11 @@ const upsertApiQueryMetricStmt = db.prepare<{
   ipAddress: string;
   route: string;
   userAgent: string | null;
+  firstQueriedAt: number;
   timestamp: number;
 }>(`
-INSERT INTO api_query_metrics (ip_address, route, user_agent, last_queried_at, query_count)
-VALUES (@ipAddress, @route, @userAgent, @timestamp, 1)
+INSERT INTO api_query_metrics (ip_address, route, user_agent, first_queried_at, last_queried_at, query_count)
+VALUES (@ipAddress, @route, @userAgent, @firstQueriedAt, @timestamp, 1)
 ON CONFLICT(ip_address, route) DO UPDATE SET
   user_agent = COALESCE(excluded.user_agent, api_query_metrics.user_agent),
   last_queried_at = excluded.last_queried_at,
@@ -250,7 +266,7 @@ ON CONFLICT(ip_address, route) DO UPDATE SET
 `);
 
 const selectApiQueryMetricsStmt = db.prepare<never, ApiQueryMetricRow>(`
-SELECT ip_address, route, user_agent, last_queried_at, query_count
+SELECT ip_address, route, user_agent, first_queried_at, last_queried_at, query_count
 FROM api_query_metrics
 ORDER BY ip_address ASC, route ASC
 `);
@@ -314,6 +330,7 @@ export interface ApiQueryLogInput {
 export interface ApiQueryRouteMetric {
   route: string;
   queryCount: number;
+  firstQueriedAt: number;
   lastQueriedAt: number;
   lastUserAgent: string | null;
 }
@@ -321,8 +338,19 @@ export interface ApiQueryRouteMetric {
 export interface ApiQueryMetric {
   ipAddress: string;
   totalQueries: number;
+  firstQueriedAt: number;
   lastQueriedAt: number;
   routes: ApiQueryRouteMetric[];
+}
+
+export interface ClientSessionStat {
+  ipAddress: string;
+  firstSeenAt: number;
+  lastSeenAt: number;
+  sessionCount: number;
+  uniqueRoutes: number;
+  lastRoute: string | null;
+  lastUserAgent: string | null;
 }
 
 export interface DatabaseStats {
@@ -612,6 +640,7 @@ export function recordApiQueryMetric(log: ApiQueryLogInput): void {
     ipAddress,
     route,
     userAgent,
+    firstQueriedAt: timestamp,
     timestamp,
   });
 }
@@ -623,11 +652,12 @@ export function listApiQueryMetrics(): ApiQueryMetric[] {
   for (const row of rows) {
     const ip = sanitizeText(row.ip_address);
     const route = sanitizeText(row.route);
+    const firstQueriedAt = sanitizeNumber(row.first_queried_at);
     const lastQueriedAt = sanitizeNumber(row.last_queried_at);
     const queryCount = sanitizeNumber(row.query_count);
     const userAgent = sanitizeText(row.user_agent ?? undefined);
 
-    if (!ip || !route || lastQueriedAt === null || queryCount === null) {
+    if (!ip || !route || firstQueriedAt === null || lastQueriedAt === null || queryCount === null) {
       continue;
     }
 
@@ -636,6 +666,7 @@ export function listApiQueryMetrics(): ApiQueryMetric[] {
       metric = {
         ipAddress: ip,
         totalQueries: 0,
+        firstQueriedAt,
         lastQueriedAt,
         routes: [],
       };
@@ -643,10 +674,12 @@ export function listApiQueryMetrics(): ApiQueryMetric[] {
     }
 
     metric.totalQueries += queryCount;
+    metric.firstQueriedAt = Math.min(metric.firstQueriedAt, firstQueriedAt);
     metric.lastQueriedAt = Math.max(metric.lastQueriedAt, lastQueriedAt);
     metric.routes.push({
       route,
       queryCount,
+      firstQueriedAt,
       lastQueriedAt,
       lastUserAgent: userAgent,
     });
@@ -666,6 +699,57 @@ export function listApiQueryMetrics(): ApiQueryMetric[] {
         ? b.lastQueriedAt - a.lastQueriedAt
         : b.totalQueries - a.totalQueries,
     );
+}
+
+export function listClientSessionStats(): ClientSessionStat[] {
+  const rows = selectApiQueryMetricsStmt.all();
+  const sessionsByIp = new Map<string, ClientSessionStat>();
+
+  for (const row of rows) {
+    const ip = sanitizeText(row.ip_address);
+    const route = sanitizeText(row.route);
+    const firstQueriedAt = sanitizeNumber(row.first_queried_at);
+    const lastQueriedAt = sanitizeNumber(row.last_queried_at);
+    const queryCount = sanitizeNumber(row.query_count);
+    const userAgent = sanitizeText(row.user_agent ?? undefined);
+
+    if (!ip || !route || firstQueriedAt === null || lastQueriedAt === null || queryCount === null) {
+      continue;
+    }
+
+    let session = sessionsByIp.get(ip);
+    if (!session) {
+      session = {
+        ipAddress: ip,
+        firstSeenAt: firstQueriedAt,
+        lastSeenAt: lastQueriedAt,
+        sessionCount: 0,
+        uniqueRoutes: 0,
+        lastRoute: null,
+        lastUserAgent: null,
+      };
+      sessionsByIp.set(ip, session);
+    }
+
+    session.sessionCount += queryCount;
+    session.uniqueRoutes += 1;
+    session.firstSeenAt = Math.min(session.firstSeenAt, firstQueriedAt);
+
+    if (lastQueriedAt >= session.lastSeenAt) {
+      session.lastSeenAt = lastQueriedAt;
+      session.lastRoute = route;
+      session.lastUserAgent = userAgent;
+    }
+  }
+
+  return Array.from(sessionsByIp.values()).sort((a, b) => {
+    if (b.lastSeenAt === a.lastSeenAt) {
+      return b.sessionCount === a.sessionCount
+        ? a.ipAddress.localeCompare(b.ipAddress)
+        : b.sessionCount - a.sessionCount;
+    }
+    return b.lastSeenAt - a.lastSeenAt;
+  });
 }
 
 export function getDatabaseStats(): DatabaseStats {
