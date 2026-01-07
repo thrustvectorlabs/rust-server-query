@@ -28,6 +28,13 @@ cp config.ts config.js
 
 run_in_dir "." yarn install
 run_in_dir "packages/web" yarn install
+
+if [ -f "packages/web/.env" ]; then
+  set -a
+  . "packages/web/.env"
+  set +a
+fi
+
 run_in_dir "packages/web" yarn build
 run_in_dir "packages/web" ./rsync-to-nginx.sh
 run_in_dir "packages/server" yarn install
