@@ -66,3 +66,17 @@ export interface PlayerSessionStat {
 export interface PlayerSessionsResponse {
   players: PlayerSessionStat[];
 }
+
+export interface ClientSessionStat {
+  ipAddress: string;
+  firstSeenAt: number;
+  lastSeenAt: number;
+  sessionCount: number;
+  uniqueRoutes: number;
+  lastRoute: string | null;
+  lastUserAgent: string | null;
+}
+
+export interface ClientSessionsResponse {
+  sessions: ClientSessionStat[];
+}

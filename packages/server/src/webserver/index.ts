@@ -10,6 +10,7 @@ import {
   getDatabaseStats,
   listPlayerSessionStats,
   recordApiQueryMetric,
+  listClientSessionStats,
   type ServerIdentifier,
 } from '../database/database.js';
 import { logMessage, loggingGroups } from '../logger/logger.js';
@@ -33,6 +34,13 @@ export const startWebServer = () => {
     next();
   });
 
+  app.use('/api', (req, res, next) => {
+    res.on('finish', () => {
+      recordApiVisit(req);
+    });
+    next();
+  });
+
   app.get('/', (_req, res) => {
     res.send('Rust Server Query Web Server is running.');
   });
@@ -50,7 +58,6 @@ export const startWebServer = () => {
     }
 
     const summary = getServerSummary(server);
-    recordApiVisit(req);
     const players = listActiveSessions(server);
     if (!summary) {
       res.json({
@@ -87,7 +94,6 @@ export const startWebServer = () => {
     }
 
     const summary = getServerSummary(server);
-    recordApiVisit(req);
     const sessions = listRecentSessions(server, limit);
     if (!summary) {
       res.json({
@@ -124,6 +130,11 @@ export const startWebServer = () => {
   app.get('/api/internal/player-sessions', (_req, res) => {
     const players = listPlayerSessionStats();
     res.json({ players });
+  });
+
+  app.get('/api/internal/client-sessions', (_req, res) => {
+    const sessions = listClientSessionStats();
+    res.json({ sessions });
   });
 
   app.listen(config.webServer.port, () => {

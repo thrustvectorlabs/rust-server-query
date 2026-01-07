@@ -6,6 +6,8 @@ import { ServerSessionsPage } from './pages/ServerSessionsPage.js';
 import { DatabaseStatsPage } from './pages/DatabaseStatsPage.js';
 import { NotificationTestPage } from './pages/NotificationTestPage.js';
 import { PlayerNotificationsPage } from './pages/PlayerNotificationsPage.js';
+import { InternalIndexPage } from './pages/InternalIndexPage.js';
+import { ClientSessionsPage } from './pages/ClientSessionsPage.js';
 
 export default function App() {
   return (
@@ -28,7 +30,9 @@ export default function App() {
               <Route path="/" element={<DashboardPage />} />
               <Route path="/notifications" element={<PlayerNotificationsPage />} />
               <Route path="/servers/:type/:host/:port" element={<ServerSessionsPage />} />
+              <Route path="/internal" element={<InternalIndexPage />} />
               <Route path="/internal/database-stats" element={<DatabaseStatsPage />} />
+              <Route path="/internal/client-sessions" element={<ClientSessionsPage />} />
               <Route path="/internal/notifications" element={<NotificationTestPage />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
