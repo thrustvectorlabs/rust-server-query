@@ -4,7 +4,7 @@ const BASE_URL = resolveBaseUrl();
 
 function resolveBaseUrl(): string {
   const configured =
-    import.meta.env.VITE_API_URL ??
+    import.meta.env.VITE_RUST_SERVER_QUERY_API_URL ??
     import.meta.env.VITE_SERVER_API_URL ??
     null;
 
