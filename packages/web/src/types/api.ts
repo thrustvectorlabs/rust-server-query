@@ -80,3 +80,12 @@ export interface ClientSessionStat {
 export interface ClientSessionsResponse {
   sessions: ClientSessionStat[];
 }
+
+export interface InternalEmailRequest {
+  subject: string;
+  body: string;
+}
+
+export interface InternalEmailResponse {
+  ok: boolean;
+}

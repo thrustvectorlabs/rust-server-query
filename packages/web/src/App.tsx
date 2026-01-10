@@ -8,6 +8,7 @@ import { NotificationTestPage } from './pages/NotificationTestPage.js';
 import { PlayerNotificationsPage } from './pages/PlayerNotificationsPage.js';
 import { InternalIndexPage } from './pages/InternalIndexPage.js';
 import { ClientSessionsPage } from './pages/ClientSessionsPage.js';
+import { InternalEmailPage } from './pages/InternalEmailPage.js';
 
 export default function App() {
   return (
@@ -34,6 +35,7 @@ export default function App() {
               <Route path="/internal/database-stats" element={<DatabaseStatsPage />} />
               <Route path="/internal/client-sessions" element={<ClientSessionsPage />} />
               <Route path="/internal/notifications" element={<NotificationTestPage />} />
+              <Route path="/internal/send-email" element={<InternalEmailPage />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </Container>

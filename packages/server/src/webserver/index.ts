@@ -1,5 +1,6 @@
 import express, { type Request } from 'express';
 import cors from 'cors';
+import nodemailer from 'nodemailer';
 import { config } from '../config.js';
 import {
   getServerSummary,
@@ -17,6 +18,10 @@ import { logMessage, loggingGroups } from '../logger/logger.js';
 
 const DEFAULT_SESSION_LIMIT = 50;
 const MAX_SESSION_LIMIT = 200;
+const EMAIL_SUBJECT_LIMIT = 200;
+const EMAIL_BODY_LIMIT = 5000;
+const INTERNAL_EMAIL_FROM = 'info@deltaserve.nl';
+const INTERNAL_EMAIL_TO = 'thrustvectorlabs@protonmail.com';
 
 export const startWebServer = () => {
   const app = express();
@@ -24,6 +29,7 @@ export const startWebServer = () => {
   app.set('trust proxy', true);
   app.use(cors());
   app.set('json spaces', 2);
+  app.use(express.json({ limit: '20kb' }));
 
   app.use((req, _res, next) => {
     const clientIp = extractClientIp(req);
@@ -135,6 +141,45 @@ export const startWebServer = () => {
   app.get('/api/internal/client-sessions', (_req, res) => {
     const sessions = listClientSessionStats();
     res.json({ sessions });
+  });
+
+  app.post('/api/internal/send-email', async (req, res) => {
+    const subject = typeof req.body?.subject === 'string' ? req.body.subject.trim() : '';
+    const body = typeof req.body?.body === 'string' ? req.body.body.trim() : '';
+
+    if (!subject || !body) {
+      res.status(400).json({ error: 'Subject and body are required.' });
+      return;
+    }
+
+    if (subject.length > EMAIL_SUBJECT_LIMIT) {
+      res.status(400).json({ error: `Subject must be <= ${EMAIL_SUBJECT_LIMIT} characters.` });
+      return;
+    }
+
+    if (body.length > EMAIL_BODY_LIMIT) {
+      res.status(400).json({ error: `Body must be <= ${EMAIL_BODY_LIMIT} characters.` });
+      return;
+    }
+
+    const transport = nodemailer.createTransport({
+      host: 'localhost',
+      port: 25,
+      secure: false,
+    });
+
+    try {
+      await transport.sendMail({
+        from: INTERNAL_EMAIL_FROM,
+        to: INTERNAL_EMAIL_TO,
+        subject,
+        text: body,
+      });
+      res.json({ ok: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: `Failed to send email: ${message}` });
+    }
   });
 
   app.listen(config.webServer.port, () => {

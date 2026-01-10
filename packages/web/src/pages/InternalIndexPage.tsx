@@ -17,6 +17,11 @@ const internalPages = [
     title: 'Notification Test',
     description: 'Play notification audio and verify browser support.',
   },
+  {
+    to: '/internal/send-email',
+    title: 'Send Email',
+    description: 'Send an internal email to the configured recipient.',
+  },
 ];
 
 export function InternalIndexPage() {

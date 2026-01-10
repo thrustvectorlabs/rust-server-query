@@ -34,6 +34,30 @@ export async function apiGet<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
+export async function apiPost<T, B = unknown>(
+  path: string,
+  body: B,
+  init?: RequestInit,
+): Promise<T> {
+  const response = await fetch(`${BASE_URL}${path}`, {
+    method: 'POST',
+    ...init,
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      ...init?.headers,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const message = await extractErrorMessage(response);
+    throw new Error(message ?? `Request failed (${response.status})`);
+  }
+
+  return (await response.json()) as T;
+}
+
 async function extractErrorMessage(response: Response): Promise<string | null> {
   try {
     const data = await response.json();
