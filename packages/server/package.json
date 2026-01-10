@@ -18,6 +18,7 @@
     "@types/express": "5.0.6",
     "@types/gamedig": "^5.0.3",
     "@types/node": "25.0.1",
+    "@types/nodemailer": "^7.0.5",
     "@types/ws": "^8.18.1",
     "prettier": "3.7.4",
     "tsx": "4.21.0",
