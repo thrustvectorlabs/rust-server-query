@@ -29,8 +29,8 @@ run_in_dir() {
 
 cp config.ts config.js
 
-run_in_dir "." yarn install --production=false
-run_in_dir "packages/web" yarn install --production=false
+run_in_dir "." yarn install --production=false --check-files
+run_in_dir "packages/web" yarn install --production=false --check-files
 
 if [ -f "packages/web/.env" ]; then
   set -a
@@ -40,7 +40,7 @@ fi
 
 run_in_dir "packages/web" yarn build
 run_in_dir "packages/web" ./rsync-to-nginx.sh
-run_in_dir "packages/server" yarn install --production=false
+run_in_dir "packages/server" yarn install --production=false --check-files
 run_in_dir "packages/server" ./kill-server.sh
 run_in_dir "packages/server" yarn build
 run_in_dir "packages/server" ./run-server-in-background.sh
